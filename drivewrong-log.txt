@@ -1,0 +1,211 @@
+--------- beginning of main
+11-20 00:14:32.698 19506 19506 I KiteTrace: heat map: 2 of 2 tiles at zoom 13
+11-20 00:14:36.684 19506 19506 I KiteTrace: heat map: 2 of 2 tiles at zoom 13
+11-20 00:14:43.391 19506 19506 I KiteTrace: heat map: 6 of 6 tiles at zoom 12
+11-20 00:14:48.041 19506 19506 I KiteVoice: say: Starting route to Select Car Leasing Stadium. In 50 yards, turn left onto Bridge Street.
+11-20 00:14:48.117 19506 19506 I KiteTrace: at 51.45430,-0.97310 along 0 off 25 next 1 in 64 offRoute false speed 0
+11-20 00:14:49.148 19506 19506 I KiteTrace: heat map: 2 of 2 tiles at zoom 13
+11-20 00:14:51.139 19506 19506 I KiteTrace: at 51.45404,-0.97302 along 14 off 0 next 1 in 50 offRoute false speed 14
+11-20 00:14:51.145 19506 19506 I KiteVoice: say: Turn left onto Bridge Street
+11-20 00:14:55.107 19506 19506 I KiteTrace: at 51.45387,-0.97356 along 56 off 0 next 1 in 8 offRoute false speed 14
+11-20 00:14:56.489 19506 19506 I KiteVoice: say: In 250 yards, at the roundabout, take the 3rd exit. Use the right lane
+11-20 00:14:59.458 19506 19506 I KiteTrace: at 51.45357,-0.97340 along 98 off 0 next 2 in 211 offRoute false speed 14
+11-20 00:15:00.662 19506 19506 I KiteTrace: heat map: 4 of 4 tiles at zoom 13
+11-20 00:15:02.721 19506 19506 I KiteTrace: at 51.45336,-0.97318 along 126 off 0 next 2 in 183 offRoute false speed 14
+11-20 00:15:05.900 19506 19506 I KiteTrace: at 51.45315,-0.97297 along 154 off 0 next 2 in 155 offRoute false speed 14
+11-20 00:15:08.980 19506 19506 I KiteTrace: at 51.45293,-0.97276 along 182 off 0 next 2 in 127 offRoute false speed 14
+11-20 00:15:12.983 19506 19506 I KiteTrace: at 51.45261,-0.97247 along 224 off 0 next 2 in 85 offRoute false speed 14
+11-20 00:15:15.271 19506 19506 I KiteTrace: waze browse: live map failed, drivers' reports 6 (Waze: nothing; page: fetch HTTP 403 · pass no, page asked 1× (403) key 6Lf4Wd api)
+11-20 00:15:17.300 19506 19506 I KiteTrace: at 51.45230,-0.97214 along 266 off 0 next 2 in 43 offRoute false speed 14
+11-20 00:15:17.304 19506 19506 I KiteVoice: say: At the roundabout, take the 3rd exit
+11-20 00:15:19.850 19506 19506 I KiteTrace: heat map: 2 of 2 tiles at zoom 13
+11-20 00:15:21.574 19506 19506 I KiteTrace: at 51.45199,-0.97178 along 308 off 0 next 3 in 344 offRoute false speed 14
+11-20 00:15:23.296 19506 19506 I KiteTrace: heat map: 4 of 4 tiles at zoom 13
+11-20 00:15:25.196 19506 19506 I KiteTrace: at 51.45183,-0.97129 along 350 off 0 next 3 in 302 offRoute false speed 14
+11-20 00:15:27.873 19506 19506 I KiteTrace: heat map: 2 of 2 tiles at zoom 13
+11-20 00:15:28.164 19506 19506 I KiteTrace: heat map: 4 of 4 tiles at zoom 13
+11-20 00:15:29.154 19506 19506 I KiteTrace: at 51.45149,-0.97144 along 392 off 0 next 3 in 260 offRoute false speed 14
+11-20 00:15:30.247 19506 19506 I KiteVoice: say: In 250 yards, keep left at the fork onto A33
+11-20 00:15:32.615 19506 19506 I KiteTrace: at 51.45134,-0.97198 along 434 off 0 next 3 in 218 offRoute false speed 14
+11-20 00:15:35.135 19506 19506 I KiteTrace: heat map: 2 of 2 tiles at zoom 13
+11-20 00:15:36.476 19506 19506 I KiteTrace: at 51.45109,-0.97244 along 476 off 0 next 3 in 176 offRoute false speed 14
+11-20 00:15:38.098 19506 19506 I KiteTrace: heat map: 1 of 1 tiles at zoom 13
+11-20 00:15:40.191 19506 19506 I KiteTrace: at 51.45084,-0.97290 along 518 off 0 next 3 in 134 offRoute false speed 14
+11-20 00:15:44.270 19506 19506 I KiteTrace: at 51.45060,-0.97336 along 560 off 0 next 3 in 92 offRoute false speed 14
+11-20 00:15:48.300 19506 19506 I KiteTrace: at 51.45043,-0.97390 along 602 off 0 next 3 in 50 offRoute false speed 14
+11-20 00:15:48.339 19506 19506 I KiteVoice: say: Keep left at the fork onto A33
+11-20 00:15:52.253 19506 19506 I KiteTrace: at 51.45039,-0.97449 along 644 off 0 next 3 in 8 offRoute false speed 14
+11-20 00:15:55.723 19506 19506 I KiteTrace: at 51.45022,-0.97502 along 686 off 0 next 4 in 2704 offRoute false speed 14
+11-20 00:15:57.630 19506 19506 I KiteTrace: heat map: 2 of 2 tiles at zoom 13
+11-20 00:15:58.911 19506 19506 I KiteTrace: heat map: 6 of 6 tiles at zoom 13
+11-20 00:15:59.423 19506 19506 I KiteTrace: at 51.44993,-0.97539 along 728 off 0 next 4 in 2662 offRoute false speed 14
+11-20 00:16:00.432 19506 19506 I KiteTrace: heat map: 3 of 3 tiles at zoom 13
+11-20 00:16:02.110 19506 19506 I KiteTrace: heat map: 6 of 6 tiles at zoom 13
+11-20 00:16:02.634 19506 19506 I KiteTrace: at 51.44956,-0.97545 along 770 off 0 next 4 in 2620 offRoute false speed 14
+11-20 00:16:06.352 19506 19506 I KiteTrace: at 51.44920,-0.97533 along 812 off 0 next 4 in 2578 offRoute false speed 14
+11-20 00:16:10.619 19506 19506 I KiteTrace: at 51.44884,-0.97514 along 854 off 0 next 4 in 2536 offRoute false speed 14
+11-20 00:16:13.094 19506 19506 I KiteTrace: heat map: 4 of 4 tiles at zoom 13
+11-20 00:16:14.602 19506 19506 I KiteTrace: at 51.44848,-0.97495 along 896 off 0 next 4 in 2494 offRoute false speed 14
+11-20 00:16:18.433 19506 19506 I KiteTrace: at 51.44812,-0.97478 along 938 off 0 next 4 in 2452 offRoute false speed 14
+11-20 00:16:21.771 19506 19506 I KiteTrace: at 51.44775,-0.97460 along 980 off 0 next 4 in 2410 offRoute false speed 14
+11-20 00:16:24.884 19506 19506 I KiteTrace: at 51.44739,-0.97446 along 1022 off 0 next 4 in 2368 offRoute false speed 14
+11-20 00:16:25.568 19506 19506 I KiteTrace: heat map: 6 of 6 tiles at zoom 13
+11-20 00:16:28.663 19506 19506 I KiteTrace: at 51.44701,-0.97438 along 1064 off 0 next 4 in 2326 offRoute false speed 14
+11-20 00:16:31.661 19506 19506 I KiteTrace: waze browse: both failed (Waze: nothing; page: fetch HTTP 403 · pass no, page asked 1× (403) key 6Lf4Wd api)
+11-20 00:16:32.285 19506 19506 I KiteTrace: at 51.44664,-0.97433 along 1106 off 0 next 4 in 2284 offRoute false speed 14
+11-20 00:16:35.560 19506 19506 I KiteTrace: at 51.44626,-0.97434 along 1148 off 0 next 4 in 2242 offRoute false speed 14
+11-20 00:16:36.611 19506 19506 I KiteTrace: heat map: 3 of 3 tiles at zoom 13
+11-20 00:16:38.678 19506 19506 I KiteTrace: at 51.44589,-0.97442 along 1190 off 0 next 4 in 2200 offRoute false speed 14
+11-20 00:16:41.866 19506 19506 I KiteTrace: at 51.44552,-0.97458 along 1232 off 0 next 4 in 2158 offRoute false speed 14
+11-20 00:16:41.920 19506 19506 I KiteTrace: heat map: 6 of 6 tiles at zoom 13
+11-20 00:16:45.001 19506 19506 I KiteTrace: at 51.44517,-0.97479 along 1274 off 0 next 4 in 2116 offRoute false speed 14
+11-20 00:16:48.032 19506 19506 I KiteTrace: at 51.44483,-0.97506 along 1316 off 0 next 4 in 2074 offRoute false speed 14
+11-20 00:16:49.005 19506 19506 I KiteTrace: heat map: 4 of 4 tiles at zoom 13
+11-20 00:16:51.043 19506 19506 I KiteTrace: at 51.44452,-0.97540 along 1358 off 0 next 4 in 2032 offRoute false speed 14
+11-20 00:16:54.399 19506 19506 I KiteTrace: at 51.44424,-0.97581 along 1400 off 0 next 4 in 1990 offRoute false speed 14
+11-20 00:16:57.585 19506 19506 I KiteTrace: at 51.44397,-0.97623 along 1442 off 0 next 4 in 1948 offRoute false speed 14
+11-20 00:16:59.407 19506 19506 I KiteTrace: heat map: 6 of 6 tiles at zoom 13
+11-20 00:17:00.593 19506 19506 I KiteTrace: at 51.44364,-0.97652 along 1484 off 0 next 4 in 1906 offRoute false speed 14
+11-20 00:17:02.059 19506 19506 I KiteTrace: heat map: 3 of 3 tiles at zoom 13
+11-20 00:17:03.666 19506 19506 I KiteTrace: at 51.44327,-0.97663 along 1526 off 0 next 4 in 1864 offRoute false speed 14
+11-20 00:17:06.825 19506 19506 I KiteTrace: at 51.44289,-0.97668 along 1568 off 0 next 4 in 1822 offRoute false speed 14
+11-20 00:17:09.845 19506 19506 I KiteTrace: at 51.44251,-0.97672 along 1610 off 0 next 4 in 1780 offRoute false speed 14
+11-20 00:17:12.966 19506 19506 I KiteTrace: at 51.44214,-0.97676 along 1652 off 0 next 4 in 1738 offRoute false speed 14
+11-20 00:17:16.340 19506 19506 I KiteTrace: at 51.44176,-0.97680 along 1694 off 0 next 4 in 1696 offRoute false speed 14
+11-20 00:17:19.383 19506 19506 I KiteTrace: at 51.44138,-0.97684 along 1736 off 0 next 4 in 1654 offRoute false speed 14
+11-20 00:17:22.638 19506 19506 I KiteTrace: at 51.44101,-0.97689 along 1778 off 0 next 4 in 1612 offRoute false speed 14
+11-20 00:17:25.847 19506 19506 I KiteTrace: at 51.44063,-0.97695 along 1820 off 0 next 4 in 1570 offRoute false speed 14
+11-20 00:17:28.922 19506 19506 I KiteTrace: at 51.44025,-0.97700 along 1862 off 0 next 4 in 1528 offRoute false speed 14
+11-20 00:17:32.035 19506 19506 I KiteTrace: at 51.43988,-0.97705 along 1904 off 0 next 4 in 1486 offRoute false speed 14
+11-20 00:17:36.099 19506 19506 I KiteTrace: at 51.43950,-0.97710 along 1946 off 0 next 4 in 1444 offRoute false speed 14
+11-20 00:17:40.657 19506 19506 I KiteTrace: at 51.43940,-0.97752 along 1960 off 27 next 4 in 1430 offRoute false speed 14
+11-20 00:17:42.502 19506 19506 I KiteTrace: heat map: 6 of 6 tiles at zoom 13
+11-20 00:17:43.542 19506 19506 I KiteTrace: heat map: 4 of 4 tiles at zoom 13
+11-20 00:17:43.897 19506 19506 I KiteTrace: at 51.43942,-0.97792 along 1960 off 55 next 4 in 1430 offRoute false speed 14
+11-20 00:17:45.456 19506 19506 I KiteTrace: heat map: 6 of 6 tiles at zoom 13
+11-20 00:17:45.457 19506 19506 I KiteTrace: reroute from 51.43942833243259,-0.9781200350304322
+11-20 00:17:45.503 19506 19506 I KiteVoice: say: Rerouting.
+11-20 00:17:46.047 19506 19506 I KiteTrace: heat map: 3 of 3 tiles at zoom 13
+11-20 00:17:47.919 19506 19506 I KiteTrace: at 51.43944,-0.97832 along 0 off 74 next 1 in 460 offRoute false speed 14
+11-20 00:17:47.926 19506 19506 I KiteVoice: say: In a quarter of a mile, slight left onto Rose Kiln Lane
+11-20 00:17:49.421 19506 19506 I KiteTrace: heat map: 2 of 2 tiles at zoom 13
+11-20 00:17:51.503 19506 19506 I KiteTrace: at 51.43947,-0.97892 along 0 off 116 next 1 in 460 offRoute true speed 14
+11-20 00:17:54.710 19506 19506 I KiteTrace: reroute from 51.43949102099209,-0.9793264517833671
+11-20 00:17:56.031 19506 19506 I KiteTrace: at 51.43950,-0.97953 along 0 off 158 next 1 in 460 offRoute true speed 14
+11-20 00:17:56.607 19506 19506 I KiteVoice: say: In a quarter of a mile, slight left onto Rose Kiln Lane
+11-20 00:17:59.882 19506 19506 I KiteTrace: at 51.43953,-0.98013 along 0 off 200 next 1 in 459 offRoute true speed 14
+11-20 00:18:02.446 19506 19506 I KiteTrace: waze browse: both failed (Waze: nothing; page: fetch HTTP 403 · pass no, page asked 1× (403) key 6Lf4Wd api)
+11-20 00:18:03.270 19506 19506 I KiteTrace: reroute from 51.43956415764483,-0.9807339400879155
+11-20 00:18:03.926 19506 19506 I KiteTrace: at 51.43956,-0.98073 along 0 off 242 next 1 in 459 offRoute false speed 14
+11-20 00:18:03.932 19506 19506 I KiteVoice: say: In a quarter of a mile, slight left onto Rose Kiln Lane
+11-20 00:18:07.186 19506 19506 I KiteTrace: heat map: 2 of 2 tiles at zoom 13
+11-20 00:18:07.695 19506 19506 I KiteTrace: at 51.43964,-0.97722 along 27 off 0 next 1 in 431 offRoute false speed 14
+11-20 00:18:08.207 19506 19506 I KiteTrace: heat map: 4 of 4 tiles at zoom 13
+11-20 00:18:11.204 19506 19506 I KiteTrace: at 51.44002,-0.97717 along 69 off 0 next 1 in 389 offRoute false speed 14
+11-20 00:18:14.230 19506 19506 I KiteTrace: at 51.44039,-0.97712 along 111 off 0 next 1 in 347 offRoute false speed 14
+11-20 00:18:17.554 19506 19506 I KiteTrace: at 51.44077,-0.97707 along 153 off 0 next 1 in 305 offRoute false speed 14
+11-20 00:18:21.065 19506 19506 I KiteTrace: at 51.44115,-0.97702 along 195 off 0 next 1 in 263 offRoute false speed 14
+11-20 00:18:22.312 19506 19506 I KiteVoice: say: In 250 yards, slight left onto Rose Kiln Lane
+11-20 00:18:25.091 19506 19506 I KiteTrace: at 51.44152,-0.97696 along 238 off 0 next 1 in 221 offRoute false speed 14
+11-20 00:18:29.438 19506 19506 I KiteTrace: heat map: 2 of 2 tiles at zoom 13
+11-20 00:18:29.799 19506 19506 I KiteTrace: at 51.44190,-0.97691 along 280 off 0 next 1 in 179 offRoute false speed 14
+11-20 00:18:33.099 19506 19506 I KiteTrace: at 51.44215,-0.97688 along 308 off 0 next 1 in 151 offRoute false speed 14
+11-20 00:18:37.658 19506 19506 I KiteTrace: at 51.44253,-0.97683 along 350 off 0 next 1 in 109 offRoute false speed 14
+11-20 00:18:40.635 19506 19506 I KiteTrace: heat map: 1 of 1 tiles at zoom 13
+11-20 00:18:41.910 19506 19506 I KiteTrace: at 51.44290,-0.97679 along 392 off 0 next 1 in 67 offRoute false speed 14
+11-20 00:18:43.713 19506 19506 I KiteVoice: say: Slight left onto Rose Kiln Lane
+11-20 00:18:45.293 19506 19506 I KiteTrace: at 51.44315,-0.97677 along 420 off 0 next 1 in 39 offRoute false speed 14
+11-20 00:18:48.356 19506 19506 I KiteTrace: at 51.44341,-0.97677 along 448 off 0 next 1 in 11 offRoute false speed 14
+11-20 00:18:51.386 19506 19506 I KiteTrace: at 51.44365,-0.97686 along 476 off 0 next 2 in 69 offRoute false speed 14
+11-20 00:18:52.410 19506 19506 I KiteVoice: say: Turn right
+11-20 00:18:55.644 19506 19506 I KiteTrace: at 51.44402,-0.97681 along 518 off 0 next 2 in 27 offRoute false speed 14
+11-20 00:18:58.395 19506 19506 I KiteTrace: heat map: 2 of 2 tiles at zoom 13
+11-20 00:18:59.848 19506 19506 I KiteTrace: at 51.44423,-0.97642 along 560 off 0 next 3 in 1980 offRoute false speed 14
+11-20 00:19:01.716 19506 19506 I KiteTrace: heat map: 4 of 4 tiles at zoom 13
+11-20 00:19:03.654 19506 19506 I KiteTrace: at 51.44390,-0.97631 along 602 off 0 next 3 in 1938 offRoute false speed 14
+11-20 00:19:04.197 19506 19506 I KiteTrace: heat map: 2 of 2 tiles at zoom 13
+11-20 00:19:05.239 19506 19506 I KiteTrace: heat map: 4 of 4 tiles at zoom 13
+11-20 00:19:07.554 19506 19506 I KiteTrace: at 51.44356,-0.97656 along 644 off 0 next 3 in 1896 offRoute false speed 14
+11-20 00:19:09.482 19506 19506 I KiteTrace: heat map: 3 of 3 tiles at zoom 13
+11-20 00:19:12.443 19506 19506 I KiteTrace: at 51.44318,-0.97665 along 686 off 0 next 3 in 1854 offRoute false speed 14
+11-20 00:19:15.962 19506 19506 I KiteTrace: at 51.44281,-0.97669 along 728 off 0 next 3 in 1812 offRoute false speed 14
+11-20 00:19:19.805 19506 19506 I KiteTrace: at 51.44243,-0.97673 along 770 off 0 next 3 in 1770 offRoute false speed 14
+11-20 00:19:24.215 19506 19506 I KiteTrace: at 51.44205,-0.97677 along 812 off 0 next 3 in 1728 offRoute false speed 14
+11-20 00:19:26.808 19506 19506 I KiteTrace: waze browse: both failed (Waze: nothing; page: fetch HTTP 403 · pass no, page asked 1× (403) key 6Lf4Wd api)
+11-20 00:19:27.387 19506 19506 I KiteTrace: at 51.44167,-0.97681 along 854 off 0 next 3 in 1686 offRoute false speed 14
+11-20 00:19:30.550 19506 19506 I KiteTrace: at 51.44130,-0.97685 along 896 off 0 next 3 in 1644 offRoute false speed 14
+11-20 00:19:33.735 19506 19506 I KiteTrace: at 51.44092,-0.97691 along 938 off 0 next 3 in 1602 offRoute false speed 14
+11-20 00:19:36.809 19506 19506 I KiteTrace: at 51.44055,-0.97696 along 980 off 0 next 3 in 1560 offRoute false speed 14
+11-20 00:19:40.123 19506 19506 I KiteTrace: at 51.44017,-0.97701 along 1022 off 0 next 3 in 1518 offRoute false speed 14
+11-20 00:19:43.271 19506 19506 I KiteTrace: at 51.43979,-0.97706 along 1064 off 0 next 3 in 1476 offRoute false speed 14
+11-20 00:19:46.364 19506 19506 I KiteTrace: at 51.43942,-0.97711 along 1106 off 0 next 3 in 1434 offRoute false speed 14
+11-20 00:19:49.378 19506 19506 I KiteTrace: at 51.43904,-0.97716 along 1148 off 0 next 3 in 1392 offRoute false speed 14
+11-20 00:19:52.816 19506 19506 I KiteTrace: at 51.43866,-0.97721 along 1190 off 0 next 3 in 1350 offRoute false speed 14
+11-20 00:19:56.064 19506 19506 I KiteTrace: at 51.43841,-0.97724 along 1218 off 0 next 3 in 1322 offRoute false speed 14
+11-20 00:20:00.252 19506 19506 I KiteTrace: at 51.43804,-0.97729 along 1260 off 0 next 3 in 1280 offRoute false speed 14
+11-20 00:20:04.389 19506 19506 I KiteTrace: at 51.43766,-0.97736 along 1302 off 0 next 3 in 1238 offRoute false speed 14
+11-20 00:20:08.204 19506 19506 I KiteTrace: at 51.43729,-0.97748 along 1344 off 0 next 3 in 1196 offRoute false speed 14
+11-20 00:20:11.246 19506 19506 I KiteTrace: at 51.43705,-0.97759 along 1372 off 0 next 3 in 1168 offRoute false speed 14
+11-20 00:20:15.458 19506 19506 I KiteTrace: at 51.43668,-0.97768 along 1414 off 0 next 3 in 1126 offRoute false speed 14
+11-20 00:20:18.813 19506 19506 I KiteTrace: heat map: 6 of 6 tiles at zoom 13
+11-20 00:20:19.350 19506 19506 I KiteTrace: at 51.43630,-0.97768 along 1456 off 0 next 3 in 1084 offRoute false speed 14
+11-20 00:20:20.407 19506 19506 I KiteTrace: heat map: 3 of 3 tiles at zoom 13
+11-20 00:20:22.529 19506 19506 I KiteTrace: at 51.43592,-0.97772 along 1498 off 0 next 3 in 1042 offRoute false speed 14
+11-20 00:20:25.757 19506 19506 I KiteTrace: at 51.43554,-0.97778 along 1540 off 0 next 3 in 1000 offRoute false speed 14
+11-20 00:20:26.787 19506 19506 I KiteVoice: say: In three quarters of a mile, at the roundabout, take the 2nd exit onto Rose Kiln Lane
+11-20 00:20:28.994 19506 19506 I KiteTrace: at 51.43517,-0.97782 along 1582 off 0 next 3 in 958 offRoute false speed 14
+11-20 00:20:32.074 19506 19506 I KiteTrace: at 51.43479,-0.97786 along 1624 off 0 next 3 in 916 offRoute false speed 14
+11-20 00:20:35.744 19506 19506 I KiteTrace: at 51.43441,-0.97790 along 1666 off 0 next 3 in 874 offRoute false speed 14
+11-20 00:20:39.653 19506 19506 I KiteTrace: at 51.43404,-0.97795 along 1708 off 0 next 3 in 832 offRoute false speed 14
+11-20 00:20:43.021 19506 19506 I KiteTrace: at 51.43379,-0.97797 along 1736 off 0 next 3 in 804 offRoute false speed 14
+11-20 00:20:47.181 19506 19506 I KiteTrace: at 51.43341,-0.97799 along 1778 off 0 next 3 in 762 offRoute false speed 14
+11-20 00:20:51.194 19506 19506 I KiteTrace: at 51.43303,-0.97803 along 1820 off 0 next 3 in 720 offRoute false speed 14
+11-20 00:20:54.326 19506 19506 I KiteTrace: at 51.43278,-0.97806 along 1848 off 0 next 3 in 692 offRoute false speed 14
+11-20 00:20:56.974 19506 19506 I KiteTrace: waze browse: both failed (Waze: nothing; page: fetch HTTP 403 · pass no, page asked 1× (403) key 6Lf4Wd api)
+11-20 00:20:58.186 19506 19506 I KiteTrace: at 51.43240,-0.97811 along 1890 off 0 next 3 in 650 offRoute false speed 14
+11-20 00:21:01.231 19506 19506 I KiteTrace: at 51.43203,-0.97818 along 1932 off 0 next 3 in 608 offRoute false speed 14
+11-20 00:21:04.414 19506 19506 I KiteTrace: at 51.43166,-0.97830 along 1974 off 0 next 3 in 566 offRoute false speed 14
+11-20 00:21:07.681 19506 19506 I KiteTrace: at 51.43129,-0.97845 along 2016 off 0 next 3 in 524 offRoute false speed 14
+11-20 00:21:11.082 19506 19506 I KiteTrace: at 51.43094,-0.97866 along 2058 off 0 next 3 in 482 offRoute false speed 14
+11-20 00:21:14.147 19506 19506 I KiteTrace: at 51.43058,-0.97887 along 2100 off 0 next 3 in 440 offRoute false speed 14
+11-20 00:21:17.234 19506 19506 I KiteTrace: at 51.43023,-0.97907 along 2142 off 0 next 3 in 398 offRoute false speed 14
+11-20 00:21:20.520 19506 19506 I KiteTrace: at 51.42987,-0.97928 along 2184 off 0 next 3 in 356 offRoute false speed 14
+11-20 00:21:21.808 19506 19506 I KiteTrace: heat map: 2 of 2 tiles at zoom 13
+11-20 00:21:24.017 19506 19506 I KiteTrace: at 51.42952,-0.97949 along 2226 off 0 next 3 in 314 offRoute false speed 14
+11-20 00:21:27.127 19506 19506 I KiteTrace: at 51.42928,-0.97962 along 2254 off 0 next 3 in 286 offRoute false speed 14
+11-20 00:21:30.132 19506 19506 I KiteTrace: at 51.42905,-0.97976 along 2282 off 0 next 3 in 258 offRoute false speed 14
+11-20 00:21:31.709 19506 19506 I KiteVoice: say: In 250 yards, at the roundabout, take the 2nd exit onto Rose Kiln Lane. Use the left 2 lanes
+11-20 00:21:34.835 19506 19506 I KiteTrace: at 51.42869,-0.97998 along 2324 off 0 next 3 in 216 offRoute false speed 14
+11-20 00:21:39.000 19506 19506 I KiteTrace: at 51.42834,-0.98021 along 2366 off 0 next 3 in 174 offRoute false speed 14
+11-20 00:21:43.395 19506 19506 I KiteTrace: at 51.42799,-0.98043 along 2408 off 0 next 3 in 132 offRoute false speed 14
+11-20 00:21:46.824 19506 19506 I KiteTrace: at 51.42775,-0.98054 along 2436 off 0 next 3 in 104 offRoute false speed 14
+11-20 00:21:49.843 19506 19506 I KiteTrace: at 51.42750,-0.98061 along 2464 off 0 next 3 in 76 offRoute false speed 14
+11-20 00:21:52.670 19506 19506 I KiteVoice: say: At the roundabout, take the 2nd exit onto Rose Kiln Lane
+11-20 00:21:53.926 19506 19506 I KiteTrace: at 51.42712,-0.98066 along 2506 off 0 next 3 in 34 offRoute false speed 14
+11-20 00:21:56.631 19506 19506 I KiteVoice: say: In half a mile, at the roundabout, take the 2nd exit onto South Oak Way
+11-20 00:21:57.863 19506 19506 I KiteTrace: at 51.42675,-0.98055 along 2548 off 0 next 4 in 527 offRoute false speed 14
+11-20 00:22:01.101 19506 19506 I KiteTrace: at 51.42651,-0.98046 along 2576 off 0 next 4 in 499 offRoute false speed 14
+11-20 00:22:02.669 19506 19506 I KiteTrace: heat map: 4 of 4 tiles at zoom 13
+11-20 00:22:05.312 19506 19506 I KiteTrace: at 51.42614,-0.98035 along 2618 off 0 next 4 in 457 offRoute false speed 14
+11-20 00:22:05.768 19506 19506 I KiteTrace: heat map: 6 of 6 tiles at zoom 13
+11-20 00:22:09.919 19506 19506 I KiteTrace: at 51.42577,-0.98024 along 2660 off 0 next 4 in 415 offRoute false speed 14
+11-20 00:22:13.157 19506 19506 I KiteTrace: at 51.42552,-0.98022 along 2688 off 0 next 4 in 387 offRoute false speed 14
+11-20 00:22:13.161 19506 19506 I KiteTrace: heat map: 3 of 3 tiles at zoom 13
+11-20 00:22:14.171 19506 19506 I KiteTrace: heat map: 6 of 6 tiles at zoom 13
+11-20 00:22:16.207 19506 19506 I KiteTrace: at 51.42527,-0.98018 along 2716 off 0 next 4 in 359 offRoute false speed 14
+11-20 00:22:19.951 19506 19506 I KiteTrace: heat map: 4 of 4 tiles at zoom 13
+11-20 00:22:20.839 19506 19506 I KiteTrace: at 51.42490,-0.98003 along 2758 off 0 next 4 in 317 offRoute false speed 14
+11-20 00:22:25.353 19506 19506 I KiteTrace: at 51.42455,-0.97981 along 2800 off 0 next 4 in 275 offRoute false speed 14
+11-20 00:22:28.245 19506 19506 I KiteVoice: say: In 250 yards, at the roundabout, take the 2nd exit onto South Oak Way
+11-20 00:22:29.596 19506 19506 I KiteTrace: at 51.42420,-0.97957 along 2842 off 0 next 4 in 233 offRoute false speed 14
+11-20 00:22:29.863 19506 19506 I KiteTrace: heat map: 2 of 2 tiles at zoom 13
+11-20 00:22:32.649 19506 19506 I KiteTrace: at 51.42398,-0.97939 along 2870 off 0 next 4 in 205 offRoute false speed 14
+11-20 00:22:34.483 19506 19506 I KiteTrace: heat map: 1 of 1 tiles at zoom 13
+11-20 00:22:34.484 19506 19506 I KiteTrace: waze browse: both failed (Waze: nothing; page: fetch HTTP 403 · pass no, page asked 1× (403) key 6Lf4Wd api)
+11-20 00:22:36.827 19506 19506 I KiteTrace: at 51.42362,-0.97919 along 2912 off 0 next 4 in 163 offRoute false speed 14
+11-20 00:22:40.909 19506 19506 I KiteTrace: at 51.42326,-0.97900 along 2954 off 0 next 4 in 121 offRoute false speed 14
+11-20 00:22:44.702 19506 19506 I KiteTrace: at 51.42290,-0.97883 along 2996 off 0 next 4 in 79 offRoute false speed 14
+11-20 00:22:47.130 19506 19506 I KiteVoice: say: At the roundabout, take the 2nd exit onto South Oak Way
+11-20 00:22:48.529 19506 19506 I KiteTrace: at 51.42252,-0.97880 along 3038 off 0 next 4 in 37 offRoute false speed 14
+11-20 00:22:52.521 19506 19506 I KiteTrace: at 51.42217,-0.97872 along 3080 off 0 next 5 in 51 offRoute false speed 14
+11-20 00:22:56.388 19506 19506 I KiteTrace: at 51.42189,-0.97892 along 3122 off 0 next 5 in 9 offRoute false speed 14
