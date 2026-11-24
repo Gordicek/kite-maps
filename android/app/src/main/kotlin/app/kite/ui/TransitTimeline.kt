@@ -61,7 +61,7 @@ internal fun TransitTimeBar(trip: TransitTrip, live: Map<String, TransitLive>) {
 
 @Composable
 internal fun TransitTransferNotes(trip: TransitTrip, live: Map<String, TransitLive>, fromLeg: Int = 0) {
-    for (risk in trip.transferWarnings(live).filter { it.afterLeg >= fromLeg }.take(2)) {
+    for (risk in trip.transferWarnings(live, AppSettings.learnedWalkingPace).filter { it.afterLeg >= fromLeg }.take(2)) {
         val color = if (risk.kind == TransferTiming.Kind.TIGHT) {
             if (LocalDark.current) Color(0xFFFFCE85) else Color(0xFF82500F)
         } else Vela.closed

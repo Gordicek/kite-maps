@@ -128,6 +128,11 @@ class MainActivity : ComponentActivity() {
             "app.kite.HOME" -> model.perform(LaunchKind.HOME)
             "app.kite.WORK" -> model.perform(LaunchKind.WORK)
             "app.kite.CAR" -> model.perform(LaunchKind.CAR)
+            TransitReminders.OPEN_PLAN -> {
+                if (!model.isGuiding) AppSettings.savedPlans.firstOrNull {
+                    it.id == i.getStringExtra(TransitReminders.PLAN)
+                }?.let(model::openSavedPlan)
+            }
         }
         // The screenshot scripts, for the build's emulator only: on a real phone another app could
         // otherwise start Kite in a demo that mutes the voice.

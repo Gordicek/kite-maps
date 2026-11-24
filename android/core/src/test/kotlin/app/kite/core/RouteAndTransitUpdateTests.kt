@@ -23,11 +23,14 @@ class RouteAndTransitUpdateTests {
         val at = LatLng(50.0, 14.0)
         val rides = listOf(
             TransitLeg(false, "BUS", toName = "Transfer station", arrive = 600_000, tripId = "incoming"),
-            TransitLeg(true, "WALK", durationSeconds = 180.0),
+            TransitLeg(true, "WALK", durationSeconds = 180.0, distanceMeters = 234.0),
             TransitLeg(false, "TRAM", depart = 900_000, tripId = "outgoing"),
         )
         val trip = TransitTrip(0, 1_000_000, 1000.0, 1, rides)
         assertEquals(120, trip.transferWarnings(emptyMap()).single().bufferSeconds)
+        val personalized = trip.transferWarnings(emptyMap(), walkingPace = 0.75).single()
+        assertEquals(-12, personalized.bufferSeconds)
+        assertEquals(TransferTiming.Kind.MISSED, personalized.kind)
         val updated = TransitLive(null, TransitCall("a", "Transfer station", at, 733_000, null), false, emptyList())
         val warning = trip.transferWarnings(mapOf("incoming" to updated)).single()
         assertEquals(-13, warning.bufferSeconds)

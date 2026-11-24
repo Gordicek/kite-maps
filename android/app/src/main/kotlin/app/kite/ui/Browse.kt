@@ -64,6 +64,7 @@ fun BrowseOverlay(model: AppModel, showMapbox: Boolean) {
         if (model.consumeSearchPrompt()) focused = true
     }
     var showCategories by rememberSaveable { mutableStateOf(false) }
+    var nearbyDepartures by rememberSaveable { mutableStateOf(false) }
     val focus = LocalFocusManager.current
     val hasSheet = model.selected != null || model.results.isNotEmpty()
     val idle = !hasSheet && !focused
@@ -83,6 +84,7 @@ fun BrowseOverlay(model: AppModel, showMapbox: Boolean) {
                 Spacer(Modifier.weight(1f))
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     MapFab(Icons.Outlined.Layers) { model.showLayers = true }
+                    if (idle) MapFab(Icons.Filled.DirectionsTransit) { nearbyDepartures = true }
                     if (s.parkingButton || s.parking != null) {
                         MapFab(Icons.Filled.LocalParking, tint = if (s.parking != null) Vela.routeBlue else null) {
                             val p = s.parking
@@ -181,6 +183,7 @@ fun BrowseOverlay(model: AppModel, showMapbox: Boolean) {
     androidx.activity.compose.BackHandler(enabled = focused || hasSheet) {
         if (focused) { focus.clearFocus(); focused = false } else model.backFromSearch()
     }
+    if (nearbyDepartures) NearbyDepartures(model) { nearbyDepartures = false }
 }
 
 /** "Centre on me", with sharing and parking on a long press. */

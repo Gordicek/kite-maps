@@ -790,7 +790,7 @@ fun TransitBody(model: AppModel, state: DirectionsState) {
                         })
                         if (picked) {
                             val disrupted = shown.rides.any { it.cancelled || live[it.tripId]?.cancelled == true } ||
-                                shown.transferWarnings(live).any { it.kind == TransferTiming.Kind.MISSED }
+                                shown.transferWarnings(live, AppSettings.learnedWalkingPace).any { it.kind == TransferTiming.Kind.MISSED }
                             Button({ if (disrupted) model.loadTransit() else model.startTransitNavigation() },
                                 Modifier.fillMaxWidth().padding(top = 5.dp).heightIn(min = 45.dp)) {
                                 Icon(if (disrupted) Icons.Filled.Refresh else Icons.Filled.Navigation, null, Modifier.size(18.dp))

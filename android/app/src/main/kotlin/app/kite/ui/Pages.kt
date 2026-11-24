@@ -3,6 +3,8 @@
 package app.kite.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -72,6 +74,11 @@ fun SavedPage(model: AppModel) {
     var editingFolder by remember { mutableStateOf(false) }
     var removingFolder by remember { mutableStateOf(false) }
     var removePlan by remember { mutableStateOf<SavedPlan?>(null) }
+    var pendingReminder by remember { mutableStateOf<SavedPlan?>(null) }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
+        if (allowed) pendingReminder?.let { TransitReminders.toggleDeparture(ctx, it) }
+        pendingReminder = null
+    }
     var newName by remember { mutableStateOf("") }
     var folderName by remember { mutableStateOf("") }
     fun go(p: Place) { model.tab = AppTab.MAP; model.openDirections(p) }
@@ -125,6 +132,19 @@ fun SavedPage(model: AppModel) {
                             leadingContent = { Icon(if (plan.transit) Icons.Filled.DirectionsTransit else Icons.Filled.Directions, null) },
                             trailingContent = {
                                 Row {
+                                    if (plan.transitDeparture?.let { it > System.currentTimeMillis() } == true) {
+                                        val armed = plan.reminderAt?.let { it > System.currentTimeMillis() } == true
+                                        IconButton({
+                                            if (armed || TransitReminders.canNotify(ctx)) TransitReminders.toggleDeparture(ctx, plan)
+                                            else if (android.os.Build.VERSION.SDK_INT >= 33) {
+                                                pendingReminder = plan
+                                                notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                            }
+                                        }) {
+                                            Icon(if (armed) Icons.Filled.NotificationsActive else Icons.Filled.NotificationsNone,
+                                                if (armed) "Cancel departure reminder" else "Remind me five minutes before leaving")
+                                        }
+                                    }
                                     IconButton({ ctx.share(plan.shareText()) }) { Icon(Icons.Filled.Share, "Share route") }
                                     IconButton({ removePlan = plan }) { Icon(Icons.Filled.Delete, "Delete route") }
                                 }
@@ -200,7 +220,11 @@ fun SavedPage(model: AppModel) {
         dismissButton = { TextButton({ removingFolder = false }) { Text("Cancel") } })
     removePlan?.let { plan ->
         AlertDialog(onDismissRequest = { removePlan = null }, title = { Text("Delete ${plan.name}?") },
-            confirmButton = { TextButton({ s.savedPlans = s.savedPlans.filter { it.id != plan.id }; removePlan = null }) {
+            confirmButton = { TextButton({
+                TransitReminders.cancel(ctx, plan.id)
+                s.savedPlans = s.savedPlans.filter { it.id != plan.id }
+                removePlan = null
+            }) {
                 Text("Delete route")
             } }, dismissButton = { TextButton({ removePlan = null }) { Text("Cancel") } })
     }
@@ -495,6 +519,25 @@ private fun TransitSettings() {
     val context = LocalContext.current
     val settings = AppSettings
     var value by remember { mutableStateOf(settings.pidAccessToken) }
+    SettingsGroup(header = "Transit guidance") {
+        ToggleRow("Notify before my stop", Icons.Filled.NotificationsActive, 0x126782, settings.transitExitAlerts) {
+            settings.transitExitAlerts = it
+        }
+        ToggleRow("Learn my walking pace", Icons.AutoMirrored.Filled.DirectionsWalk, 0x0F766E, settings.learnTransitWalkingPace) {
+            settings.learnTransitWalkingPace = it
+        }
+        settings.learnedWalkingPace?.let { pace ->
+            TextButton({ settings.transitWalkingPace = 0.0 }, Modifier.padding(horizontal = 10.dp)) {
+                Text("Reset walking pace (${String.format(java.util.Locale.getDefault(), "%.1f", pace * 3.6)} km/h)")
+            }
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 31 && !TransitReminders.canScheduleExactly(context)) {
+            TextButton({
+                context.startActivity(android.content.Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                    android.net.Uri.parse("package:${context.packageName}")))
+            }, Modifier.padding(horizontal = 10.dp)) { Text("Allow on-time departure reminders") }
+        }
+    }
     SettingsGroup(header = "Prague Integrated Transport",
         footer = "With a Golemio token, Kite can read live departure times and vehicle positions for supported PID trips. The token stays in Kite's settings.") {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {

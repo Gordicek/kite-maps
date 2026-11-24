@@ -1742,7 +1742,15 @@ class AppModel {
                 transit.observe(f)
                 walking.handle(f)
                 if (walking.arrived) advanceTransitLeg()
-                else { followCamera(walking, f); driveNote(walking); mapTick++ }
+                else {
+                    if (settings.learnTransitWalkingPace) transit.sampleWalkingPace(f)?.let { sample ->
+                        val previous = settings.learnedWalkingPace
+                        settings.transitWalkingPace = if (previous == null) sample else previous * 0.8 + sample * 0.2
+                    }
+                    followCamera(walking, f)
+                    driveNote(walking)
+                    mapTick++
+                }
             } else if (transit.observe(f)) advanceTransitLeg()
             else if (transit.shouldAutoBoard(f)) boardTransit()
             else focusTransitRide(transit, f)

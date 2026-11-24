@@ -13,9 +13,11 @@ data class SavedPlan(
     val id: String = UUID.randomUUID().toString(),
     val transitDeparture: Long? = null,
     val transitLines: List<String> = emptyList(),
+    val reminderAt: Long? = null,
 ) {
     fun toMap() = mapOf("id" to id, "name" to name, "points" to points.map(PlaceCodec::toMap),
-        "mode" to mode.name, "transit" to transit, "transitDeparture" to transitDeparture, "transitLines" to transitLines)
+        "mode" to mode.name, "transit" to transit, "transitDeparture" to transitDeparture,
+        "transitLines" to transitLines, "reminderAt" to reminderAt)
     fun shareText(): String {
         fun coords(p: Place) = "${p.location.lat.plain()},${p.location.lng.plain()}"
         val builder = Uri.parse("https://www.google.com/maps/dir/").buildUpon()
@@ -42,7 +44,8 @@ data class SavedPlan(
             val mode = TravelMode.entries.firstOrNull { it.name == m["mode"] } ?: TravelMode.DRIVE
             return SavedPlan(name, points, mode, transit = m["transit"] == true, id = id,
                 transitDeparture = (m["transitDeparture"] as? Number)?.toLong(),
-                transitLines = m["transitLines"].asList().orEmpty().filterIsInstance<String>())
+                transitLines = m["transitLines"].asList().orEmpty().filterIsInstance<String>(),
+                reminderAt = (m["reminderAt"] as? Number)?.toLong())
         }
     }
 }

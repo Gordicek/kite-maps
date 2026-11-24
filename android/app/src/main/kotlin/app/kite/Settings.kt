@@ -246,6 +246,13 @@ object AppSettings {
     var savedPlans: List<SavedPlan> by Pref("savedPlans",
         { p -> p.getString("savedPlans", null)?.let { Json.parse(it).asMaps()?.mapNotNull(SavedPlan::fromMap) }.orEmpty() },
         { e, value -> e.putString("savedPlans", Json.write(value.map(SavedPlan::toMap))) })
+    var learnTransitWalkingPace by bool("learnTransitWalkingPace", true)
+    var transitWalkingPace by Pref("transitWalkingPace",
+        { p -> p.getFloat("transitWalkingPace", 0f).toDouble() },
+        { e, v -> e.putFloat("transitWalkingPace", v.toFloat()) })
+    val learnedWalkingPace: Double? get() =
+        transitWalkingPace.takeIf { learnTransitWalkingPace && it in 0.65..2.2 }
+    var transitExitAlerts by bool("transitExitAlerts", true)
     var placeFolders: List<PlaceFolder> by Pref("placeFolders",
         { p -> p.getString("placeFolders", null)?.let { Json.parse(it).asMaps()?.mapNotNull(PlaceFolder::fromMap) }.orEmpty() },
         { e, value -> e.putString("placeFolders", Json.write(value.map(PlaceFolder::toMap))) })

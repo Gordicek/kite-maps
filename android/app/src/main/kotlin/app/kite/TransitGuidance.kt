@@ -34,6 +34,7 @@ class TransitGuidance(val trip: TransitTrip, val destination: Place) {
     private var closeFixes = 0
     private var boardedAt = 0L
     private var saidNext: TransitCall? = null
+    private var walkingSampleStart: Fix? = null
 
     fun prepareLeg() {
         nearExit = false
@@ -47,6 +48,7 @@ class TransitGuidance(val trip: TransitTrip, val destination: Place) {
         tracker = null
         toldExit = false
         closeFixes = 0
+        walkingSampleStart = null
         phase = when (leg?.isWalk) {
             true -> Phase.WALK
             false -> Phase.BOARD
@@ -84,8 +86,7 @@ class TransitGuidance(val trip: TransitTrip, val destination: Place) {
         nextStop = ride.next
         nearExit = ride.nearExit
         if (update.exitApproach && !toldExit) {
-            toldExit = true
-            announce("Get off at the next stop, ${leg?.toName}.")
+            warnExit(scheduled = false)
         } else if (update.nextChanged) sayNext(nextStop, scheduled = false)
         closeFixes = if (nearExit && f.accuracy in 0.0..75.0) closeFixes + 1 else 0
         return closeFixes >= 2 && (!f.speedKnown || f.speed < 4)
@@ -99,8 +100,34 @@ class TransitGuidance(val trip: TransitTrip, val destination: Place) {
     fun scheduledNext(time: Long, live: TransitLive? = null) = tracker?.scheduledNext(time, live)
 
     fun tick(now: Long, live: TransitLive?) {
-        if (phase == Phase.RIDE && now - (lastAlongAt ?: boardedAt) > 25_000)
-            sayNext(scheduledNext(now, live), scheduled = true)
+        if (phase != Phase.RIDE || live?.cancelled == true || now - (lastAlongAt ?: boardedAt) <= 25_000) return
+        val next = scheduledNext(now, live)
+        val exit = leg?.calls?.lastOrNull()
+        val arrival = live?.exit?.arrival ?: exit?.arrival ?: leg?.arrive
+        if (next != null && next == exit && arrival != null && arrival - now in 0..75_000) warnExit(scheduled = true)
+        else sayNext(next, scheduled = true)
+    }
+
+    fun sampleWalkingPace(f: Fix): Double? {
+        if (phase != Phase.WALK || f.ageMs !in 0..5_000 || f.accuracy !in 0.0..18.0 || f.speed !in 0.65..2.2) {
+            walkingSampleStart = null
+            return null
+        }
+        val from = walkingSampleStart ?: run { walkingSampleStart = f; return null }
+        val seconds = (f.elapsedMs - from.elapsedMs) / 1000.0
+        if (seconds < 18) return null
+        walkingSampleStart = f
+        if (seconds > 40 || from.coord.distanceTo(f.coord) / seconds < 0.5) return null
+        return (f.speed + from.speed) / 2
+    }
+
+    private fun warnExit(scheduled: Boolean) {
+        if (toldExit) return
+        val stop = leg?.toName?.takeIf(String::isNotBlank) ?: return
+        toldExit = true
+        val text = if (scheduled) "Scheduled exit coming up at $stop." else "Get off at the next stop, $stop."
+        announce(text)
+        if (AppSettings.transitExitAlerts) TransitReminders.exit(text)
     }
 
     private fun sayNext(call: TransitCall?, scheduled: Boolean) {
