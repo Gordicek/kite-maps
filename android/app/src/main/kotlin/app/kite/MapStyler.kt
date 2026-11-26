@@ -38,8 +38,19 @@ object MapStyler {
         label = null, halo = null, roadLabel = c(0x5F6368), roadHalo = c(0xFFFFFF), border = c(0x9AA0A6),
     )
 
-    fun apply(style: Style, isDark: Boolean) {
-        val p = if (isDark) dark else light
+    fun apply(style: Style, isDark: Boolean, colors: MapPalette) {
+        val standard = if (isDark) dark else light
+        val p = if (colors.horizon || colors == MapPalette.default(isDark)) standard else {
+            fun color(field: MapColor) = android.graphics.Color.parseColor(colors[field])
+            val land = color(MapColor.LAND)
+            val street = color(MapColor.STREETS)
+            val parks = color(MapColor.PARKS)
+            val buildings = color(MapColor.BUILDINGS)
+            Palette(land, color(MapColor.WATER), parks, parks, land, standard.landuseOpacity,
+                buildings, buildings, street, street, color(MapColor.HIGHWAYS), street, standard.path,
+                standard.casing, standard.motorwayCasing, standard.rail, land, street,
+                standard.label, standard.halo, standard.roadLabel, standard.roadHalo, standard.border)
+        }
         for (layer in style.layers) {
             val id = layer.id
             if (id.startsWith("vela") || id.startsWith("hr-heat")) continue
@@ -92,7 +103,7 @@ object MapStyler {
             id in setOf("landuse_pitch", "landuse_track", "landuse_cemetery", "landuse_hospital", "landuse_school",
                 "aeroway_fill", "aeroway_runway", "aeroway_taxiway", "airport")
 
-    private val savedLabelSizes = mutableMapOf<String, PropertyValue<*>>()
+    private val savedGuidanceLabels = mutableMapOf<String, List<PropertyValue<*>>>()
     private val savedShieldSpacing = mutableMapOf<String, PropertyValue<*>>()
     private val savedShieldPadding = mutableMapOf<String, PropertyValue<*>>()
     private val savedLineOpacity = mutableMapOf<String, PropertyValue<*>>()
@@ -102,7 +113,7 @@ object MapStyler {
         (id.startsWith("road_") || id.startsWith("bridge_") || id.startsWith("tunnel_")) && (id.contains("minor") || id.contains("service_track"))
 
     /** Forget saved values after a new style loads. */
-    fun reset() { savedLabelSizes.clear(); savedShieldSpacing.clear(); savedShieldPadding.clear(); savedLineOpacity.clear() }
+    fun reset() { savedGuidanceLabels.clear(); savedShieldSpacing.clear(); savedShieldPadding.clear(); savedLineOpacity.clear() }
 
     /** Strips the map to roads, water, parks and big road names while navigating, and puts it back after. */
     fun drive(style: Style, on: Boolean) {
@@ -124,11 +135,28 @@ object MapStyler {
                 if (on) layer.setProperties(lineOpacity(0.6f)) else restore(layer, savedLineOpacity[id]!!)
                 continue
             }
-            if (layer is SymbolLayer && (id == "highway-name-major" || id == "highway-name-minor")) {
-                if (savedLabelSizes[id] == null) savedLabelSizes[id] = layer.textSize
-                if (on) layer.setProperties(textSize(if (id == "highway-name-major") 17f else 15f))
-                else restore(layer, savedLabelSizes[id]!!)
+        }
+    }
+
+    fun guidanceLabels(style: Style, on: Boolean, dark: Boolean) {
+        if (!on) {
+            savedGuidanceLabels.forEach { (id, properties) ->
+                style.getLayer(id)?.let { layer -> properties.forEach { restore(layer, it) } }
             }
+            savedGuidanceLabels.clear()
+            return
+        }
+        for (layer in style.layers.filterIsInstance<SymbolLayer>()) {
+            val place = layer.sourceLayer == "place"
+            val road = layer.sourceLayer == "transportation_name" && !layer.id.contains("shield")
+            if (!place && !road) continue
+            savedGuidanceLabels.getOrPut(layer.id) { listOf(layer.textSize, layer.textHaloBlur) }
+            val size = org.maplibre.android.style.expressions.Expression.raw(if (place)
+                """["interpolate",["linear"],["zoom"],6,13,13,15,18,18]"""
+            else """["interpolate",["linear"],["zoom"],11,11,15,14,18,16]""")
+            layer.setProperties(textSize(size), textColor(c(if (dark) 0xF5F7FE else 0x233043)),
+                textHaloColor(c(if (dark) 0x101826 else 0xF7F9FC)), textHaloWidth(if (place) 1.75f else 1.5f),
+                textHaloBlur(0.3f))
         }
     }
 

@@ -4,6 +4,9 @@ import java.net.URLEncoder
 import java.text.Normalizer
 import java.util.UUID
 
+data class BusyHour(val hour: Int, val percent: Int)
+data class BusyDay(val dayOfWeek: Int, val hours: List<BusyHour>)
+
 data class AboutSection(val title: String, val items: List<String>)
 
 /** One place, as the place sheet shows it. Every field but name and location is optional:
@@ -35,6 +38,7 @@ data class Place(
     var streetViewHint: StreetView.Hint? = null,
     var fuelPrice: String? = null,
     var fuelStation: Boolean = false,
+    var popularTimes: List<BusyDay> = emptyList(),
 ) {
     /** The same nearby named feature across map and search providers. */
     fun matchesNearby(other: Place): Boolean {
@@ -107,6 +111,9 @@ data class Maneuver(
     var sideUnknown: Boolean = false,
 )
 
+/** Lane choices at an intersection passed between spoken maneuvers. */
+data class LaneApproach(val alongMeters: Double, val lanes: List<Lane>)
+
 /** The posted limit from [startMeters] on, in km/h; null where it isn't mapped. */
 data class SpeedLimit(val startMeters: Double, val kmh: Double?)
 
@@ -132,6 +139,7 @@ data class Route(
     var stepsComplete: Boolean = true,
     val id: String = UUID.randomUUID().toString(),
     val roadControls: List<Overpass.RoadControl> = emptyList(),
+    val laneApproaches: List<LaneApproach> = emptyList(),
 ) {
     val durationSeconds: Double get() = trafficSeconds ?: typicalSeconds
 

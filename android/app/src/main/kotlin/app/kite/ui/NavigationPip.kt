@@ -22,7 +22,11 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
+import app.kite.core.Geo
+import app.kite.core.ManeuverType
 import app.kite.*
+import app.kite.R
 import app.kite.core.TravelMode
 
 @Composable
@@ -33,8 +37,8 @@ internal fun NavigationPictureInPicture(model: AppModel, showMapbox: Boolean) {
     val progress = nav?.progress
     val distance = progress?.distanceToNext?.let(Fmt::distance)
     val instruction = when {
-        nav?.arrived == true || transit?.phase == TransitGuidance.Phase.COMPLETE -> "Arrived"
-        maneuver != null -> maneuver.instruction
+        nav?.arrived == true || transit?.phase == TransitGuidance.Phase.COMPLETE -> stringResource(R.string.nav_arrived)
+        maneuver != null -> maneuver.road?.takeIf { it.isNotBlank() } ?: Banner.headline(maneuver)
         transit != null -> transit.nextStop?.name ?: transit.leg?.toName ?: transit.destination.name
         else -> "Kite"
     }
@@ -42,7 +46,9 @@ internal fun NavigationPictureInPicture(model: AppModel, showMapbox: Boolean) {
     val accent = Color(0xFF8BF2D6)
     val panel = Color(0xFF123437)
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val compact = maxHeight < 105.dp
+        val compact = maxHeight < 125.dp
+        val portrait = maxHeight > maxWidth
+        val markerSize = if (compact) 32.dp else 42.dp
         if (nav != null && model.glide.carOnScreen) {
             val marker = if (nav.route.mode == TravelMode.DRIVE) AppSettings.driveMarker else DriveMarker.ARROW
             val tilted = marker != DriveMarker.ARROW && AppSettings.driveLook == app.kite.core.MapLook.TILTED
@@ -51,26 +57,34 @@ internal fun NavigationPictureInPicture(model: AppModel, showMapbox: Boolean) {
             val density = LocalDensity.current
             val height = maxHeight.value
             Image(puck, null, Modifier.align(Alignment.TopCenter).offset {
-                IntOffset(0, with(density) { (NavGlide.carY(height, model.glide.carNorth, compact = true).dp - 19.dp).roundToPx() })
-            }.size(38.dp).graphicsLayer {
+                IntOffset(0, with(density) { (model.glide.markerY(height, compact = true).dp - markerSize / 2).roundToPx() })
+            }.size(markerSize).graphicsLayer {
                 rotationZ = model.glide.carTurn
                 if (!tilted) scaleY = model.glide.carSquash
             })
         }
-        Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(5.dp)
-            .background(panel, RoundedCornerShape(12.dp)).padding(horizontal = 8.dp, vertical = if (compact) 4.dp else 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(maneuver?.type?.let(::maneuverIcon) ?: if (transit != null) Icons.Filled.DirectionsTransit else Icons.Filled.Navigation,
-                null, tint = accent, modifier = Modifier.size(20.dp))
+        Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(4.dp)
+            .background(panel, RoundedCornerShape(14.dp)).padding(horizontal = 8.dp, vertical = if (compact) 4.dp else 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            val iconSize = if (compact) 35.dp else 44.dp
+            if (maneuver?.type == ManeuverType.ROUNDABOUT) {
+                RoundaboutDiagram(maneuver.roundabout, maneuver.exit, Geo.drivesOnLeft(maneuver.location),
+                    Modifier.size(iconSize), inkColor = Color.White, routeColor = accent)
+            } else {
+                Icon(maneuver?.type?.let(::maneuverIcon) ?: if (transit != null) Icons.Filled.DirectionsTransit else Icons.Filled.Navigation,
+                    null, tint = accent, modifier = Modifier.size(iconSize))
+            }
             Column(Modifier.weight(1f)) {
-                if (distance != null) Text(distance, color = accent, fontSize = 14.sp, lineHeight = 16.sp, fontWeight = FontWeight.ExtraBold)
-                Text(instruction, color = Color.White, fontSize = 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (distance != null) Text(distance, color = accent, fontSize = if (compact) 21.sp else 25.sp,
+                    lineHeight = if (compact) 22.sp else 27.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                Text(instruction, color = Color.White, fontSize = if (compact) 13.sp else 16.sp,
+                    lineHeight = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = if (portrait) 2 else 1,
+                    overflow = TextOverflow.Ellipsis)
             }
         }
-        if (eta != null) Text(eta, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp).background(panel, RoundedCornerShape(9.dp))
-                .padding(horizontal = 7.dp, vertical = 3.dp))
+        if (eta != null) Text(eta, color = Color.White, fontSize = if (compact) 13.sp else 15.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp).background(panel, RoundedCornerShape(10.dp))
+                .padding(horizontal = 8.dp, vertical = 3.dp))
         if (showMapbox) MapboxAttribution(Modifier.align(Alignment.BottomStart).padding(4.dp))
     }
 }

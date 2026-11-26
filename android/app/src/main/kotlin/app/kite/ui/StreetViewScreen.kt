@@ -109,7 +109,7 @@ fun StreetViewScreen(model: AppModel, req: StreetViewRequest, mapHeight: android
             }
             if (!renderer.ready || changing) Box(Modifier.align(Alignment.Center), contentAlignment = Alignment.Center) {
                 if (renderer.loading || changing) CircularProgressIndicator(color = Color.White)
-                else Text("Panorama unavailable", color = Color.White)
+                else Text(localizeLabel("Panorama unavailable"), color = Color.White)
             }
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp).padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -148,7 +148,7 @@ fun StreetViewScreen(model: AppModel, req: StreetViewRequest, mapHeight: android
                         if (model.streetViewMapExpanded) "Shrink map" else "Enlarge map")
                 }
             }
-            if (failedStep) Text("No Street View nearby", color = primaryText,
+            if (failedStep) Text(localizeLabel("No Street View nearby"), color = primaryText,
                 modifier = Modifier.align(Alignment.TopStart).padding(10.dp).clip(CircleShape).background(interfaceSheet)
                     .padding(horizontal = 10.dp, vertical = 6.dp))
             if (showMapbox) MapboxAttribution(Modifier.align(Alignment.BottomStart).navigationBarsPadding().padding(8.dp))

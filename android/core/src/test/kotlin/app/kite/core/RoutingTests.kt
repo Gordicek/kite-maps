@@ -76,6 +76,45 @@ class RoutingTests {
         assertEquals(-121.702, g[1].lng, 1e-9)
     }
 
+    @Test fun googleRejectsMissingGeometryAndAChordThatCutsAcrossRoads() {
+        fun response(geometry: Any?): List<Route> {
+            val summary = MutableList<Any?>(8) { null }
+            summary[2] = listOf(270.0)
+            summary[3] = listOf(35.0)
+            summary[7] = listOf(null, null, null, listOf(null, null,
+                listOf(null, null, -0.02, -0.02), listOf(null, null, 0.02, 0.02)))
+            val root = MutableList<Any?>(8) { null }
+            root[1] = listOf(listOf(summary))
+            root[7] = geometry?.let { listOf(it) }
+            return DirectionsParser.parse(listOf(root), TravelMode.DRIVE)
+        }
+        assertTrue(response(null).isEmpty())
+        assertTrue(response(listOf(listOf(0, 0), listOf(0, 10_000))).isEmpty())
+        assertTrue(response(listOf(listOf(0, "missing"), listOf(0, 10_000))).isEmpty())
+        val road = response(listOf(listOf(0, 10_000, -10_000), listOf(0, 5_000, 5_000))).single()
+        assertEquals(3, road.polyline.size)
+    }
+
+    @Test fun refiningGoogleGeometryKeepsTrafficAndRejectsAnOppositeOrDifferentRoute() {
+        val googleLine = listOf(ll(0.0, 0.0), ll(0.004, 0.0), ll(0.004, 0.004))
+        val roadLine = listOf(googleLine.first(), ll(0.00396, 0.0), ll(0.004, 0.00004), googleLine.last())
+        fun withSteps(line: List<LatLng>): Route {
+            val end = Geo.length(line)
+            return route(line, listOf(man(ManeuverType.DEPART, "Go", line.first(), 0.0, end),
+                man(ManeuverType.ARRIVE, "Arrive", line.last(), end, 0.0)), end)
+        }
+        val google = withSteps(googleLine).copy(source = "google", trafficSeconds = 118.0,
+            trafficSpans = listOf(TrafficSpan(2, 100.0, 250.0)))
+        val detailed = withSteps(roadLine)
+        val refined = assertNotNull(Directions.roadGeometry(google, detailed))
+        assertEquals(roadLine, refined.polyline)
+        assertEquals(google.id, refined.id)
+        assertEquals(118.0, refined.durationSeconds)
+        assertEquals(250.0, refined.trafficSpans.single().lengthMeters, 2.0)
+        assertNull(Directions.roadGeometry(google, withSteps(roadLine.reversed())))
+        assertNull(Directions.roadGeometry(google, withSteps(listOf(googleLine.first(), ll(0.0, 0.004), googleLine.last()))))
+    }
+
     @Test fun pbHasNoPlaceholdersLeft() {
         val pb = DirectionsPb.build(ll(38.5, -121.7), ll(38.7, -121.6), TravelMode.WALK, avoidTolls = true)
         assertFalse(pb.contains("{")); assertFalse(pb.contains(" "))

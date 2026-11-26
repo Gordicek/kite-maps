@@ -78,7 +78,7 @@ class RoundaboutTests {
         line.add(at(90.0, 200.0))
         val cum = Geo.cumulative(line)
         val along = Geo.project(at(180.0, 30.0), line, cum).along
-        val s = Roundabouts.shape(ways, at(180.0, 30.0), line, cum, along, true, 3)!!
+        val s = Roundabouts.shape(ways, at(180.0, 30.0), line, cum, along, true)!!
         assertEquals(4, s.exits.size)
         assertEquals(2, s.taken)
         assertTrue(s.complete)
@@ -86,6 +86,14 @@ class RoundaboutTests {
         assertTrue(Roundabouts.angleGap(s.exits[1], 0.0) < 3)
         assertEquals(90.0, s.exits[2], 3.0)
         assertEquals(1, s.ruleLane)
+        val wrong = Maneuver(ManeuverType.ROUNDABOUT, "At the roundabout, take the 7th exit", at(180.0, 30.0),
+            along, 200.0, exit = 7)
+        val google = route(line, listOf(wrong)).copy(source = "google")
+        val mapped = assertNotNull(Roundabouts.applyWays(google, ways, true)).maneuvers.first()
+        assertEquals(3, mapped.exit)
+        assertEquals(s.exits, mapped.roundabout!!.exits)
+        val brokenRing = ways.map { if (it.id == 100L) it.copy(nodes = it.nodes.dropLast(1), points = it.points.dropLast(1)) else it }
+        assertNull(Roundabouts.shape(brokenRing, at(180.0, 30.0), line, cum, along, true))
     }
 
     @Test fun dualCarriagewayMerges() {

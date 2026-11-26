@@ -1,0 +1,10 @@
+Lucide Static 1.81.0
+https://github.com/lucide-icons/lucide
+License terms are in lucide/LICENSE.txt.
+
+Material Design Icons SVG 0.14.15, Round
+https://github.com/google/material-design-icons
+https://github.com/marella/material-design-icons
+License terms are in material/LICENSE.txt.
+
+Kite bundles selected glyphs as raster alpha masks. glyphs.txt lists the glyph names in row-major atlas order.

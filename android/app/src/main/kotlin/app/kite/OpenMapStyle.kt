@@ -26,6 +26,9 @@ object OpenMapStyle {
     const val WALK_PATHS = "kite-walk-paths"
     const val BIKE_PATHS = "kite-bike-paths"
 
+    val trailLayers = mapOf(HIKING to "hiking", CYCLING to "cycling")
+    fun trailBrightness(dark: Boolean) = if (dark) 0.42 else 0.0
+
     val pathLayers = mapOf(
         WALK_PATHS to ("""["all",["==",["geometry-type"],"LineString"],["match",["get","subclass"],["path","footway","steps"],true,false],["!=",["get","foot"],"no"],["!=",["get","access"],"private"]]""" to 0xFF188858),
         BIKE_PATHS to ("""["all",["==",["geometry-type"],"LineString"],["any",["==",["get","subclass"],"cycleway"],["==",["get","bicycle"],"designated"]],["!=",["get","access"],"private"]]""" to 0xFF3276C6),
@@ -35,6 +38,7 @@ object OpenMapStyle {
 
     val detailIcons = linkedMapOf(
         "drinking_water" to "water", "water_point" to "water", "water_tap" to "water", "water_well" to "water",
+        "parking" to "parking", "parking_entrance" to "parking", "parking_space" to "parking",
         "bench" to "bench", "shelter" to "shelter", "viewpoint" to "viewpoint", "picnic_site" to "picnic",
         "picnic_table" to "picnic", "camp_site" to "camp", "toilets" to "toilets", "shower" to "toilets",
         "bicycle_repair_station" to "bike-repair", "bicycle_parking" to "bike", "bicycle_rental" to "bike",
@@ -76,7 +80,8 @@ object OpenMapStyle {
     fun visibleGroups(model: AppModel): Set<OpenPlaceGroup> = when {
         model.nav != null || model.cruise != null ->
             if (AppSettings.navigationPlaces && !navigationUsesGoogle()) AppSettings.navigationPlaceGroups else emptySet()
-        model.transitGuidance == null && AppSettings.openMapPlaces -> AppSettings.openPlaceGroups
+        model.transitGuidance == null && AppSettings.openMapPlaces && !model.searching && model.results.isEmpty() ->
+            AppSettings.openPlaceGroups
         else -> emptySet()
     }
 

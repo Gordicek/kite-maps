@@ -49,11 +49,11 @@ fun CruiseOverlay(model: AppModel, cruise: Cruise, showMapbox: Boolean) {
             Spacer(Modifier.weight(1f))
         }
         if (!model.browseFollowing) {
-            Row(Modifier.align(Alignment.CenterHorizontally).height(52.dp).shadow(3.dp, CircleShape).clip(CircleShape).background(Vela.accent(dark))
+            Row(Modifier.align(Alignment.CenterHorizontally).height(52.dp).shadow(3.dp, CircleShape).clip(CircleShape).background(interfaceAccent)
                 .tap { model.recenterCruise() }.padding(horizontal = 22.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Filled.Navigation, null, tint = Vela.onAccent(dark))
-                Text("Re-centre", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Vela.onAccent(dark))
+                Icon(Icons.Filled.Navigation, null, tint = interfaceOnAccent)
+                Text(localizeLabel("Re-centre"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = interfaceOnAccent)
             }
         }
         CruiseBar(cruise.ref) { model.endCruise(closed = true) }
@@ -71,8 +71,8 @@ fun CruiseBar(ref: String?, onClose: () -> Unit) {
             Icon(Icons.Filled.Close, "Back to the map", tint = if (dark) hex(0xFCA5A5) else Vela.closed, modifier = Modifier.size(28.dp))
         }
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)) {
-            Icon(Icons.Filled.DirectionsCar, null, tint = Vela.accentText(dark), modifier = Modifier.size(22.dp))
-            Text("Driving", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = primaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Icon(Icons.Filled.DirectionsCar, null, tint = interfaceAccentText, modifier = Modifier.size(22.dp))
+            Text(localizeLabel("Driving"), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = primaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (ref != null) {
                 val motorway = ref.startsWith("M")
                 Text(ref, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = if (motorway) hex(0xFFFFFF) else hex(0xFFD200),

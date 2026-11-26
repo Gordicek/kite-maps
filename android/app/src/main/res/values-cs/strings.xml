@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="launcher_maps">Maps</string>
+    <string name="appearance">Vzhled</string>
+    <string name="app_theme">Vzhled aplikace</string>
+    <string name="sync_sun">Přepínat aplikaci a mapu podle východu a západu slunce</string>
+    <string name="language">Jazyk</string>
+    <string name="czech_voice">Hlasové vyhledávání v češtině</string>
+    <string name="launcher">Domovská obrazovka</string>
+    <string name="launcher_night">Použít noční ikonu aplikace</string>
+    <string name="launcher_name_setting">Zobrazovat název Maps</string>
+    <string name="nearby_departures">Odjezdy v okolí</string>
+    <string name="where_to">Kam to bude?</string>
+    <string name="search_here">Hledat v této oblasti</string>
+    <string name="settings_title">Nastavení</string>
+    <string name="map_title">Mapa</string>
+    <string name="saved_title">Uložené</string>
+    <string name="add_stop_title">Přidat zastávku</string>
+    <string name="all_results">Všechny výsledky</string>
+    <string name="on_map">Na mapě</string>
+    <string name="layers_title">Vrstvy</string>
+    <string name="route_weather">Počasí na trase</string>
+    <string name="weather_now">Teď</string>
+    <string name="weather_unavailable">Předpověď není dostupná.</string>
+    <string name="weather_departure">Odjezd</string>
+    <string name="weather_arrival">Příjezd</string>
+    <string name="weather_precipitation">Srážky</string>
+    <string name="retry">Zkusit znovu</string>
+    <string name="guidance">Navigace</string>
+    <string name="general">Obecné</string>
+    <string name="color_palette">Barevná paleta</string>
+    <string name="palette_kite">Kite</string>
+    <string name="palette_expressive">Material 3 Expressive</string>
+    <string name="indoor_floor">Podlaží %1$s</string>
+    <string name="indoor_my_location">Moje poloha</string>
+    <string name="indoor_done">Hotovo</string>
+    <string name="indoor_walk_here">Pěšky sem</string>
+    <string name="indoor_details">Podrobnosti</string>
+    <string name="indoor_wait_for_location">Čekám na určení polohy.</string>
+    <string name="indoor_guide_unavailable">V tomto podlaží se nepodařilo najít pěší trasu. Zkontrolujte podlaží a polohu GPS.</string>
+    <string name="indoor_guide_same_floor">Pěší trasa v tomto podlaží</string>
+    <string name="nav_arrived">V cíli</string>
+</resources>

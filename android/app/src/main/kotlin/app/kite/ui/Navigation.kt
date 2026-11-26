@@ -91,6 +91,7 @@ fun NavigationOverlay(model: AppModel, nav: Navigator, showMapbox: Boolean,
         }
     }
     var turnPreview by remember(nav) { mutableStateOf(false) }
+    var requestedTurn by remember(nav.route.id) { mutableStateOf<Maneuver?>(null) }
     // Screenshot run: the end trip question.
     if (DemoScript.step == "endtrip") LaunchedEffect(Unit) { kotlinx.coroutines.delay(4000); confirmEnd = true }
 
@@ -122,8 +123,8 @@ fun NavigationOverlay(model: AppModel, nav: Navigator, showMapbox: Boolean,
     LaunchedEffect(buttonNote) { if (buttonNote != null) { delay(2500); buttonNote = null } }
     val north = AppSettings.driveNorthUp || AppSettings.driveLook == MapLook.NORTH
     val risk = nav.policeRisk
-    val showRiskChip = risk != null && !nav.arrived && PoliceRisk.level(risk) != PoliceRisk.Level.LOW
-    val chipShowing = showRiskChip
+    val showRiskChip = AppSettings.wazeOn && AppSettings.wazePolice && AppSettings.policeRisk &&
+        risk != null && !nav.arrived && PoliceRisk.level(risk) != PoliceRisk.Level.LOW
 
     fun etaText(): String {
         val left = nav.progress?.remainingSeconds ?: nav.route.durationSeconds
@@ -153,10 +154,10 @@ fun NavigationOverlay(model: AppModel, nav: Navigator, showMapbox: Boolean,
             val puck = remember(dark, marker, tilted) { MapIcons.drivePuck(marker, dark, tilted).asImageBitmap() }
             val density = LocalDensity.current
             Box(Modifier.fillMaxWidth().offset {
-                IntOffset(0, with(density) { (NavGlide.carY(h.value, model.glide.carNorth).dp - 38.dp).roundToPx() })
+                IntOffset(0, with(density) { (model.glide.markerY(h.value).dp - 44.dp).roundToPx() })
             }, contentAlignment = Alignment.TopCenter) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Image(puck, "Current position", Modifier.size(76.dp)
+                    Image(puck, localizeLabel("Current position"), Modifier.size(88.dp)
                         .combinedClickable(onClick = model::tapNavigationLocation)
                         .graphicsLayer {
                             if (!tilted) scaleY = model.glide.carSquash
@@ -174,16 +175,15 @@ fun NavigationOverlay(model: AppModel, nav: Navigator, showMapbox: Boolean,
         // One column, so however many warnings are up, they push the map buttons down rather than cover them.
         Column(Modifier.fillMaxSize().systemBarsPadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(Modifier.padding(horizontal = 12.dp).padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (showMapbox) MapboxAttribution()
                 if (transitWalk != null) {
                     val nextRide = transitWalk.trip.legs.getOrNull(transitWalk.legIndex + 1)?.takeUnless { it.isWalk }
                     Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(16.dp), solid = true).padding(start = 12.dp, end = 4.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Icon(Icons.AutoMirrored.Filled.DirectionsWalk, null, tint = interfaceAccentText, modifier = Modifier.size(19.dp))
-                        Text(nextRide?.fromName?.let { "Walk to $it" } ?: "Walk to destination",
+                        Text(nextRide?.fromName?.let { kt("Walk to $it", "Pěšky na zastávku $it") } ?: localizeLabel("Walk to destination"),
                             color = primaryText, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                         if (nextRide != null) LineChip(nextRide)
-                        TextButton(model::advanceTransitLeg) { Text(if (nextRide != null) "At the stop" else "Arrived") }
+                        TextButton(model::advanceTransitLeg) { Text(localizeLabel(if (nextRide != null) "At the stop" else "Arrived")) }
                     }
                 }
                 if (nav.arrived) {
@@ -196,20 +196,22 @@ fun NavigationOverlay(model: AppModel, nav: Navigator, showMapbox: Boolean,
                             model.saveParking()
                             model.endNavigation()
                             model.openDirections(destination, TravelMode.WALK)
-                        }, Modifier.align(Alignment.CenterHorizontally)) { Text("Walk to ${destination.name}") }
+                        }, Modifier.align(Alignment.CenterHorizontally)) { Text(kt("Walk to ${destination.name}", "Pěšky do cíle ${destination.name}")) }
                     }
                 } else {
-                    DrivingTurns(nav, compact = h < 480.dp, previewing = turnPreview,
+                    DrivingTurns(nav, compact = h < 480.dp, previewing = turnPreview, requested = requestedTurn,
                         onTurn = { turn ->
                             if (turn != null) {
                                 turnPreview = true
                                 model.previewNavTurn(turn)
                             } else if (turnPreview) {
+                                requestedTurn = null
                                 turnPreview = false
                                 model.recenterNav()
                             }
                         }, onSteps = { if (onTransitTrip != null) onTransitTrip() else showSteps = true })
                 }
+                if (showMapbox) MapboxAttribution(Modifier.align(Alignment.End))
                 // One warning at a time; the others wait in the pill under it.
                 when (mainAlert) {
                     NavAlert.CAMERA -> nav.cameraAhead?.let { CameraCard(it, nav.speedMps * 3.6, nav.speedLimitKmh) }
@@ -227,9 +229,9 @@ fun NavigationOverlay(model: AppModel, nav: Navigator, showMapbox: Boolean,
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Icon(Icons.AutoMirrored.Filled.VolumeOff, null, tint = Vela.closed, modifier = Modifier.size(30.dp))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("No voice on this phone", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = primaryText)
-                            Text("Kite can't speak until a text-to-speech app is installed (RHVoice from F-Droid is a free one). Tap to open the phone's voice settings.",
-                                fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Vela.muted(dark), lineHeight = 19.sp)
+                            Text(localizeLabel("No voice on this phone"), fontSize = 19.sp, fontWeight = FontWeight.Bold, color = primaryText)
+                            Text(localizeLabel("Kite can't speak until a text-to-speech app is installed (RHVoice from F-Droid is a free one). Tap to open the phone's voice settings."),
+                                fontSize = 15.sp, fontWeight = FontWeight.Medium, color = secondaryText, lineHeight = 19.sp)
                         }
                     }
                 }
@@ -239,20 +241,20 @@ fun NavigationOverlay(model: AppModel, nav: Navigator, showMapbox: Boolean,
                     Row(Modifier.align(Alignment.CenterHorizontally).height(38.dp).glass(CircleShape).padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(Icons.Filled.LocationOff, null, tint = primaryText)
-                        Text("No GPS · estimated", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = primaryText)
+                        Text(localizeLabel("No GPS · estimated"), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = primaryText)
                     }
                 } else if (nav.gpsLost && !nav.arrived) {
                     // In a tunnel the speed and the next turn stop moving: say why, so it doesn't look live.
                     Row(Modifier.align(Alignment.CenterHorizontally).height(38.dp).glass(CircleShape).padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(Icons.Filled.LocationOff, null, tint = primaryText)
-                        Text("GPS signal lost", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = primaryText)
+                        Text(localizeLabel("GPS signal lost"), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = primaryText)
                     }
                 } else if (nav.rerouting) {
                     Row(Modifier.align(Alignment.CenterHorizontally).height(38.dp).glass(CircleShape).padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(Icons.Filled.Sync, null, tint = primaryText)
-                        Text("Rerouting…", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = primaryText)
+                        Text(localizeLabel("Rerouting…"), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = primaryText)
                     }
                 }
             }
@@ -269,37 +271,33 @@ fun NavigationOverlay(model: AppModel, nav: Navigator, showMapbox: Boolean,
                 val controls: @Composable () -> Unit = {
                     Column(horizontalAlignment = if (AppSettings.swapNavigationSides) Alignment.End else Alignment.Start,
                         verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        // A Waze police card already says it louder; the chip comes back when it's gone.
-                        // On a short phone a warning card plus lanes leaves no room: the chip gives way to the card.
-                        // The same when the next speed limit is up: on a short phone the column would reach the cards.
-                        val limitDrop = nav.limitDropAhead
-                        if (risk != null && showRiskChip && !((mainAlert != null || limitDrop != null) && h < 700.dp)) PoliceRiskChip(risk)
+                        if (risk != null && showRiskChip) PoliceRiskButton(risk, opensLeft = AppSettings.swapNavigationSides)
                         if (!nav.arrived) {
                             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                                 MapFab(Icons.Filled.Remove, size = 48.dp,
-                                    modifier = Modifier.semantics { contentDescription = "Zoom out" }) { model.zoomNavigation(-1) }
+                                    modifier = Modifier.semantics { contentDescription = localizeLabel("Zoom out") }) { model.zoomNavigation(-1) }
                                 MapFab(Icons.Filled.Add, size = 48.dp,
-                                    modifier = Modifier.semantics { contentDescription = "Zoom in" }) { model.zoomNavigation(1) }
+                                    modifier = Modifier.semantics { contentDescription = localizeLabel("Zoom in") }) { model.zoomNavigation(1) }
                             }
-                            if (nav.route.mode == TravelMode.DRIVE) MapFab(Icons.Filled.AddLocationAlt, modifier = Modifier.semantics { contentDescription = "Add stop" }) {
+                            if (nav.route.mode == TravelMode.DRIVE) MapFab(Icons.Filled.AddLocationAlt, modifier = Modifier.semantics { contentDescription = localizeLabel("Add stop") }) {
                                 model.addingStop = true
                             }
                         }
                         MapLookButton(AppSettings.driveLook, size = 48.dp) {
                             model.cycleDriveLook()
                             val look = AppSettings.driveLook
-                            buttonNote = look.title to look.detail
+                            buttonNote = localizeLabel(look.title) to localizeLabel(look.detail)
                         }
-                        CompassButton(model.mapHeading, AppSettings.driveNorthUp) { model.toggleDriveCompass() }
+                        CompassButton(model.mapHeading, model.guidanceCompass, onClick = model::toggleDriveCompass)
                         val icon = when (nav.voiceMode) {
                             VoiceMode.ALL -> Icons.AutoMirrored.Filled.VolumeUp
                             VoiceMode.ALERTS -> Icons.Filled.Notifications
                             VoiceMode.OFF -> Icons.AutoMirrored.Filled.VolumeOff
                         }
-                        MapFab(icon, tint = if (nav.voiceMode == VoiceMode.ALERTS) Vela.accentText(dark) else null, size = 52.dp,
-                            modifier = Modifier.semantics { contentDescription = "Voice: ${nav.voiceMode.title}" }) {
+                        MapFab(icon, tint = if (nav.voiceMode == VoiceMode.ALERTS) interfaceAccentText else null, size = 52.dp,
+                            modifier = Modifier.semantics { contentDescription = localizeLabel("Voice") + " · " + localizeLabel(nav.voiceMode.title) }) {
                             nav.voiceMode = nav.voiceMode.next
-                            buttonNote = nav.voiceMode.title to nav.voiceMode.detail
+                            buttonNote = localizeLabel(nav.voiceMode.title) to localizeLabel(nav.voiceMode.detail)
                         }
                     }
                 }
@@ -310,7 +308,7 @@ fun NavigationOverlay(model: AppModel, nav: Navigator, showMapbox: Boolean,
                             // Says which of the three the speaker (or the map view) is on now, for a moment.
                             Column(Modifier.shadow(6.dp, RoundedCornerShape(18.dp)).clip(RoundedCornerShape(18.dp)).background(hex(0x0F172A).copy(alpha = 0.95f))
                                 .padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Vela.accentText(true))
+                                Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = interfaceAccentText)
                                 Text(detail, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White)
                             }
                         }
@@ -332,12 +330,12 @@ fun NavigationOverlay(model: AppModel, nav: Navigator, showMapbox: Boolean,
                 }
             }
             if (!nav.following) {
-                Row(Modifier.align(Alignment.CenterHorizontally).height(52.dp).shadow(3.dp, CircleShape).clip(CircleShape).background(Vela.accent(dark))
+                Row(Modifier.align(Alignment.CenterHorizontally).height(52.dp).shadow(3.dp, CircleShape).clip(CircleShape).background(interfaceAccent)
                     .combinedClickable(onClick = model::tapNavigationLocation)
                     .padding(horizontal = 22.dp), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Filled.Navigation, null, tint = Vela.onAccent(dark))
-                    Text("Re-centre", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Vela.onAccent(dark))
+                    Icon(Icons.Filled.Navigation, null, tint = interfaceOnAccent)
+                    Text(localizeLabel("Re-centre"), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = interfaceOnAccent)
                 }
             }
             // A traffic jam ahead: small and calm over the trip bar, so the top stays for turns and cameras.
@@ -345,10 +343,10 @@ fun NavigationOverlay(model: AppModel, nav: Navigator, showMapbox: Boolean,
             if (parkingShown) {
                 Column(Modifier.padding(horizontal = 12.dp).fillMaxWidth().glass(RoundedCornerShape(18.dp))
                     .padding(horizontal = 12.dp, vertical = 6.dp)) {
-                    Text("Near your destination", color = primaryText, fontWeight = FontWeight.SemiBold)
+                    Text(localizeLabel("Near your destination"), color = primaryText, fontWeight = FontWeight.SemiBold)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        TextButton({ nav.dismissParkingOffer() }) { Text("Continue to destination") }
-                        Button({ nav.dismissParkingOffer(); model.searchStops("parking", parking = true) }) { Text("Find parking") }
+                        TextButton({ nav.dismissParkingOffer() }) { Text(localizeLabel("Continue to destination")) }
+                        Button({ nav.dismissParkingOffer(); model.searchStops("parking", parking = true) }) { Text(localizeLabel("Find parking")) }
                     }
                 }
             }
@@ -374,7 +372,7 @@ fun NavigationOverlay(model: AppModel, nav: Navigator, showMapbox: Boolean,
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 // The things that used to be buttons on the map, out of the way until wanted.
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    TripAction(Icons.Filled.Search, "Add stop") { showSteps = false; model.addingStop = true }
+                    TripAction(Icons.Filled.Search, localizeLabel("Add stop")) { showSteps = false; model.addingStop = true }
                     TripAction(Icons.Filled.Share, "Share ETA") { ctx.share(etaText()) }
                     TripAction(Icons.Filled.ZoomOutMap, "Overview") { showSteps = false; model.overviewNav() }
                     TripAction(Icons.Filled.Terrain, "Profile") { showSteps = false; model.openProfile(nav.route) }
@@ -384,13 +382,18 @@ fun NavigationOverlay(model: AppModel, nav: Navigator, showMapbox: Boolean,
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(Icons.Filled.Place, null, tint = interfaceAccentText)
                         Column(Modifier.weight(1f)) {
-                            Text("Next stop", fontSize = KType.caption, color = secondaryText)
+                            Text(localizeLabel("Next stop"), fontSize = KType.caption, color = secondaryText)
                             Text(stop.name, maxLines = 2, overflow = TextOverflow.Ellipsis, color = primaryText)
                         }
-                        TextButton(nav::removeNextStop, enabled = !nav.rerouting && !nav.arrived) { Text("Skip stop") }
+                        TextButton(nav::removeNextStop, enabled = !nav.rerouting && !nav.arrived) { Text(localizeLabel("Skip stop")) }
                     }
                 }
-                StepsList(nav.route, nav.progress?.nextIndex ?: 0)
+                ExpandableSteps(nav.route, nav.progress?.nextIndex ?: 0, initiallyOpen = true) { step ->
+                    showSteps = false
+                    turnPreview = true
+                    requestedTurn = step
+                    model.previewNavTurn(step)
+                }
             }
         }
     }
@@ -404,7 +407,7 @@ fun TripSheet(title: String, button: String, close: () -> Unit, content: @Compos
         Column(Modifier.fillMaxSize().background(interfaceGround).systemBarsPadding()) {
             Box(Modifier.fillMaxWidth().height(56.dp)) {
                 Text(title, fontSize = KType.headline, fontWeight = FontWeight.SemiBold, color = primaryText, modifier = Modifier.align(Alignment.Center))
-                Text(button, fontSize = KType.body, fontWeight = FontWeight.SemiBold, color = Vela.accentText(dark), modifier = Modifier.align(Alignment.CenterEnd)
+                Text(button, fontSize = KType.body, fontWeight = FontWeight.SemiBold, color = interfaceAccentText, modifier = Modifier.align(Alignment.CenterEnd)
                     .padding(end = 8.dp).clip(RoundedCornerShape(8.dp)).tap(close).padding(horizontal = 10.dp, vertical = 8.dp))
             }
             Column(Modifier.weight(1f).fillMaxWidth(), content = content)
@@ -415,7 +418,7 @@ fun TripSheet(title: String, button: String, close: () -> Unit, content: @Compos
 @Composable
 private fun RowScope.TripAction(icon: ImageVector, title: String, onClick: () -> Unit) {
     val dark = LocalDark.current
-    Column(Modifier.weight(1f).heightIn(min = 78.dp).clip(RoundedCornerShape(18.dp)).background(Vela.chip(dark)).tap(onClick),
+    Column(Modifier.weight(1f).heightIn(min = 78.dp).clip(RoundedCornerShape(18.dp)).background(interfaceChip).tap(onClick),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically)) {
         Icon(icon, null, tint = primaryText, modifier = Modifier.size(26.dp))
         Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = primaryText, maxLines = 1)
@@ -440,9 +443,10 @@ object Banner {
 
     /** "6th exit" for a roundabout (the picture says the rest), else the instruction. */
     fun headline(m: Maneuver?): String {
-        m ?: return "Follow the route"
+        m ?: return kt("Follow the route", "Pokračujte po trase")
         val n = m.exit
-        if (m.type == ManeuverType.ROUNDABOUT && n != null) return "${ordinal(n)} exit"
+        if (m.type == ManeuverType.ROUNDABOUT && n != null) return kt("${ordinal(n)} exit", "$n. výjezd")
+        if (czechUi) return m.czechInstruction()
         return SpokenText.forScreen(m.instruction)
     }
 
@@ -452,15 +456,10 @@ object Banner {
     }
 }
 
-private val drivePanel = Color(0xFF094D4E)
-private val drivePanelInset = Color(0xFF063B40)
-private val drivePanelAccent = Color(0xFF85F5D4)
-private val drivePanelSecondary = Color(0xFFC8E6E5)
-
 @Composable
 private fun DrivingTurns(
     nav: Navigator, compact: Boolean, previewing: Boolean,
-    onTurn: (Maneuver?) -> Unit, onSteps: () -> Unit,
+    requested: Maneuver?, onTurn: (Maneuver?) -> Unit, onSteps: () -> Unit,
 ) {
     val next = nav.progress?.nextIndex ?: 0
     val upcoming = remember(nav.route.maneuvers, next) {
@@ -469,20 +468,42 @@ private fun DrivingTurns(
     val liveOnTurn by rememberUpdatedState(onTurn)
     key(nav.route.id, next) {
         val pager = rememberPagerState { 1 + upcoming.size }
+        var firstSettledPage by remember { mutableStateOf(true) }
+        LaunchedEffect(requested) {
+            if (requested != null) {
+                val index = upcoming.indexOfFirst { it.alongMeters == requested.alongMeters && it.type == requested.type }
+                if (index >= 0) pager.scrollToPage(index + 1)
+            }
+        }
         LaunchedEffect(pager.settledPage) {
-            liveOnTurn(upcoming.getOrNull(pager.settledPage - 1))
+            val ignoreInitial = firstSettledPage && pager.settledPage == 0
+            firstSettledPage = false
+            if (!ignoreInitial) liveOnTurn(upcoming.getOrNull(pager.settledPage - 1))
         }
         LaunchedEffect(nav.following) {
             if (nav.following && previewing && pager.currentPage != 0) pager.scrollToPage(0)
         }
         HorizontalPager(pager, Modifier.widthIn(max = 452.dp).fillMaxWidth(),
             userScrollEnabled = upcoming.isNotEmpty(), verticalAlignment = Alignment.Top) { page ->
-            val turn = upcoming.getOrNull(page - 1)
+            val turn = upcoming.getOrNull(page - 1) ?: requested?.takeIf { !nav.following && page == 0 }
             val distance = nav.progress?.let { progress ->
                 turn?.let { (it.alongMeters - progress.alongMeters).coerceAtLeast(0.0) } ?: progress.distanceToNext
             }
+            val along = nav.progress?.alongMeters
+            val approach = if (page == 0 && along != null && !nav.arrived && nav.progress?.offRoute == false) {
+                val next = nav.nextManeuver
+                if (next != null && NavigationDrawing.isExitApproach(next)) {
+                    NavigationDrawing.exitLanes(next, nav.route.laneApproaches)?.takeIf {
+                        it.alongMeters > along + 5 && it.alongMeters <= along + 750
+                    }
+                } else nav.route.laneApproaches.firstOrNull {
+                    it.alongMeters > along + 5 && it.alongMeters <= along + 350 &&
+                        it.alongMeters < (next?.alongMeters ?: Double.POSITIVE_INFINITY) - 12
+                }
+            } else null
             DrivingBanner(turn ?: nav.nextManeuver, distance, nav.thenManeuver.takeIf { page == 0 },
-                compact, preview = page > 0, onSteps = onSteps)
+                compact, preview = page > 0, onSteps = onSteps, laneApproach = approach,
+                approachDistance = if (approach != null && along != null) approach.alongMeters - along else null)
         }
     }
 }
@@ -490,61 +511,88 @@ private fun DrivingTurns(
 @Composable
 private fun DrivingBanner(
     maneuver: Maneuver?, distance: Double?, then: Maneuver?, compact: Boolean, preview: Boolean, onSteps: () -> Unit,
+    laneApproach: LaneApproach? = null, approachDistance: Double? = null,
 ) {
     val leftTraffic = maneuver?.let { Geo.drivesOnLeft(it.location) } ?: false
     val headline = Banner.headline(maneuver)
     val parts = Banner.split(headline)
     val road = parts?.second ?: maneuver?.road?.takeIf { it.isNotBlank() && it != headline }
     val instruction = parts?.first ?: headline
-    val lanes = if (maneuver != null && (preview || distance != null && distance < 1_500)) LaneGuide.lanes(maneuver, leftTraffic) else null
+    val lanes = laneApproach?.let { LaneGuide.named(it.lanes) }
+        ?: if (maneuver != null && (preview || distance != null && distance < 1_500)) LaneGuide.lanes(maneuver, leftTraffic) else null
     val farAway = !preview && distance != null && distance > 3_200 && maneuver?.type != ManeuverType.ARRIVE
     val shape = RoundedCornerShape(18.dp)
     val small = compact || farAway
+    val drivePanel = interfaceSheet
+    val drivePanelInset = interfaceHighlight
+    val drivePanelAccent = interfaceAccentText
+    val driveInk = primaryText
+    val insetInk = interfaceOnHighlight
 
     Column(Modifier.fillMaxWidth().clip(shape).background(drivePanel)
         .border(1.dp, Color.White.copy(alpha = 0.16f), shape)
-        .clickable(onClickLabel = "Show route steps", onClick = onSteps)) {
+        .clickable(onClickLabel = localizeLabel("Show route steps"), onClick = onSteps)) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = if (small) 8.dp else 11.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(13.dp),
         ) {
-            val size = if (small) 46.dp else 66.dp
+            val size = if (small) 55.dp else 78.dp
             Box(Modifier.size(size).clip(RoundedCornerShape(12.dp)).background(drivePanelInset), contentAlignment = Alignment.Center) {
                 if (maneuver?.type == ManeuverType.ROUNDABOUT && maneuver.exit != null) {
-                    RoundaboutDiagram(maneuver.roundabout, maneuver.exit, leftTraffic, Modifier.size(size - 8.dp),
-                        inkColor = Color.White, routeColor = drivePanelAccent)
+                    RoundaboutDiagram(maneuver.roundabout, maneuver.exit, leftTraffic, Modifier.size(size - 5.dp),
+                        inkColor = insetInk, routeColor = drivePanelAccent)
                 } else {
                     Icon(maneuverIcon(maneuver?.type ?: ManeuverType.STRAIGHT), null,
-                        tint = Color.White, modifier = Modifier.size(size - 13.dp))
+                        tint = insetInk, modifier = Modifier.size(size * 0.72f))
                 }
             }
             Column(Modifier.weight(1f)) {
-                if (preview) Text("Upcoming turn", color = drivePanelSecondary, fontSize = 12.sp, maxLines = 1)
-                if (distance != null) Text(Fmt.distance(distance), color = Color.White,
+                if (preview) Text(localizeLabel("Upcoming turn"), color = driveInk, fontSize = 12.sp, maxLines = 1)
+                if (distance != null) Text(Fmt.distance(distance), color = driveInk,
                     fontSize = if (small) 26.sp else 36.sp, lineHeight = if (small) 29.sp else 38.sp,
                     fontWeight = FontWeight.ExtraBold, maxLines = 1)
-                Text(road ?: instruction, color = Color.White, fontSize = if (small) 16.sp else 20.sp,
+                Text(road ?: instruction, color = driveInk, fontSize = if (small) 16.sp else 20.sp,
                     fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (road != null && (!small || maneuver?.type == ManeuverType.ROUNDABOUT)) {
-                    Text(instruction, color = drivePanelSecondary, fontSize = 13.sp,
+                    Text(instruction, color = driveInk, fontSize = 13.sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
         if (lanes != null && maneuver != null) {
             Row(Modifier.fillMaxWidth().background(drivePanelInset).padding(horizontal = 12.dp, vertical = 5.dp),
-                horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                LaneStrip(lanes.first, maneuver.type, maneuver.roundabout?.let { it.exits.getOrNull(it.taken) },
-                    tileSize = if (compact) 29.dp else 34.dp, driving = true)
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically) {
+                val turn = if (laneApproach != null) ManeuverType.STRAIGHT else maneuver.type
+                val exit = if (laneApproach == null) maneuver.roundabout?.let { it.exits.getOrNull(it.taken) } else null
+                if (lanes.first.isNotEmpty()) {
+                    LaneStrip(lanes.first, turn, exit, tileSize = if (compact) 33.dp else 40.dp, driving = true)
+                } else {
+                    val hint = lanes.second
+                    val czechHint = when {
+                        hint.startsWith("rightmost lane", ignoreCase = true) -> "Použijte krajní pravý pruh"
+                        hint.startsWith("leftmost lane", ignoreCase = true) -> "Použijte krajní levý pruh"
+                        hint.startsWith("right lane", ignoreCase = true) -> "Použijte pravý pruh"
+                        hint.startsWith("left lane", ignoreCase = true) -> "Použijte levý pruh"
+                        hint.startsWith("middle lane", ignoreCase = true) -> "Použijte prostřední pruh"
+                        else -> Regex("^([0-9]+)\\s+(left|right) lanes?", RegexOption.IGNORE_CASE).find(hint)?.let {
+                            val count = it.groupValues[1].toIntOrNull() ?: 0
+                            "Použijte $count ${if (count in 2..4) "pruhy" else "pruhů"} ${if (it.groupValues[2].equals("left", true)) "vlevo" else "vpravo"}"
+                        } ?: hint
+                    }
+                    Text(kt(hint, czechHint), color = insetInk, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                if (approachDistance != null) Text(Fmt.distance(approachDistance), color = insetInk, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             }
         }
         if (!farAway && then != null) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
+            Row(Modifier.fillMaxWidth().background(drivePanelInset).padding(horizontal = 14.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(maneuverIcon(then.type), null, tint = drivePanelAccent, modifier = Modifier.size(19.dp))
-                Text("Then", color = drivePanelSecondary, fontSize = 13.sp)
-                Text(Banner.headline(then), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                Icon(maneuverIcon(then.type), null, tint = insetInk, modifier = Modifier.size(19.dp))
+                Text(localizeLabel("Then"), color = insetInk, fontSize = 13.sp)
+                Text(Banner.headline(then), color = insetInk, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
@@ -576,9 +624,9 @@ fun InstructionBanner(nav: Navigator) {
         val head = instruction
         Row(Modifier.fillMaxWidth()) {
             Row(Modifier.height(48.dp).glass(CircleShape).padding(horizontal = 16.dp)
-                .clearAndSetSemantics { contentDescription = "In ${Fmt.distance(p.distanceToNext)}, $head" },
+                .clearAndSetSemantics { contentDescription = kt("In ${Fmt.distance(p.distanceToNext)}, $head", "Za ${Fmt.distance(p.distanceToNext)} $head") },
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(maneuverIcon(if (approaching) ManeuverType.STRAIGHT else m?.type ?: ManeuverType.STRAIGHT), null, tint = Vela.accentText(dark), modifier = Modifier.size(28.dp))
+                Icon(maneuverIcon(if (approaching) ManeuverType.STRAIGHT else m?.type ?: ManeuverType.STRAIGHT), null, tint = interfaceAccentText, modifier = Modifier.size(28.dp))
                 Text(Fmt.distance(p.distanceToNext), fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = primaryText, maxLines = 1)
                 if (refs.isNotEmpty()) refs.take(2).forEach { RoadShield(it) }
                 else Text(Banner.split(head)?.second ?: head, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = primaryText, maxLines = 1,
@@ -592,7 +640,7 @@ fun InstructionBanner(nav: Navigator) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             if (m?.type == ManeuverType.ROUNDABOUT) RoundaboutDiagram(m.roundabout, m.exit, leftTraffic, Modifier.size(76.dp))
             else Box(Modifier.size(64.dp, 72.dp), contentAlignment = Alignment.Center) {
-                Icon(maneuverIcon(if (approaching) ManeuverType.STRAIGHT else m?.type ?: ManeuverType.STRAIGHT), null, tint = Vela.accentText(dark), modifier = Modifier.size(58.dp))
+                Icon(maneuverIcon(if (approaching) ManeuverType.STRAIGHT else m?.type ?: ManeuverType.STRAIGHT), null, tint = interfaceAccentText, modifier = Modifier.size(58.dp))
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 if (p != null && !nav.arrived) Text(Fmt.distance(if (approaching) p.remainingMeters else p.distanceToNext), fontSize = 38.sp, fontWeight = FontWeight.ExtraBold, color = primaryText, maxLines = 1, lineHeight = 40.sp)
@@ -600,14 +648,14 @@ fun InstructionBanner(nav: Navigator) {
                 val parts = Banner.split(head)
                 if (parts != null) {
                     // "At the end of the road, turn left" small, the road you turn onto big, like Waze.
-                    Text(parts.first, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Vela.muted(dark), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(parts.first, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = secondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(parts.second, fontSize = 21.sp, fontWeight = FontWeight.Bold, color = primaryText, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 24.sp)
                 } else {
                     Text(head, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = primaryText, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 24.sp)
                 }
                 if (refs.isNotEmpty()) Row(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) { refs.forEach { RoadShield(it) } }
                 else if (m?.type == ManeuverType.ROUNDABOUT) m.road?.let {
-                    Text("onto $it", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Vela.muted(dark), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("onto $it", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = secondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             // No lanes to show: "Then" tucks into the corner instead of taking a row of its own.
@@ -628,7 +676,7 @@ private fun ThenView(nav: Navigator) {
     val then = nav.thenManeuver ?: return
     val dark = LocalDark.current
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("Then", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Vela.muted(dark))
+        Text(localizeLabel("Then"), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = secondaryText)
         Icon(maneuverIcon(then.type), null, tint = primaryText, modifier = Modifier.size(22.dp))
         val n = then.exit
         if (then.type == ManeuverType.ROUNDABOUT && n != null) {
@@ -638,7 +686,7 @@ private fun ThenView(nav: Navigator) {
             }
         }
         // How soon after this turn it comes, so there's time to pick the lane for it.
-        nav.thenGap?.let { Text("after ${Fmt.distance(it)}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = primaryText, maxLines = 1, softWrap = false) }
+        nav.thenGap?.let { Text(kt("after ${Fmt.distance(it)}", "za ${Fmt.distance(it)}"), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = primaryText, maxLines = 1, softWrap = false) }
     }
 }
 
@@ -666,7 +714,7 @@ fun SpeedBadge(mps: Double, limitKmh: Double?, coming: LimitDrop? = null, reliab
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Text(if (reliable) "$v" else "–", fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, color = if (over) Color.White else primaryText, lineHeight = 32.sp)
             Text(if (metric) "km/h" else "mph", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                color = if (over) Color.White.copy(alpha = 0.85f) else Vela.muted(dark), lineHeight = 13.sp)
+                color = if (over) Color.White.copy(alpha = 0.85f) else secondaryText, lineHeight = 13.sp)
         }
     }
 }
@@ -732,17 +780,19 @@ fun FasterRouteCard(offer: FasterOffer, onKeep: () -> Unit, onTake: () -> Unit) 
     Column(Modifier.padding(horizontal = 12.dp).padding(bottom = 4.dp).fillMaxWidth().glass(RoundedCornerShape(28.dp)).padding(18.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text("Faster route · saves ${offer.minutes} min", fontSize = 23.sp, fontWeight = FontWeight.ExtraBold, color = primaryText, maxLines = 1,
+            Text(kt("Faster route · saves ${offer.minutes} min", "Rychlejší trasa · úspora ${offer.minutes} min"), fontSize = 23.sp, fontWeight = FontWeight.ExtraBold, color = primaryText, maxLines = 1,
                 overflow = TextOverflow.Ellipsis)
-            Text((offer.via?.let { "via $it · " } ?: "") + "taking it in a few seconds", fontSize = 16.sp, fontWeight = FontWeight.Medium,
-                color = Vela.muted(dark), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(offer.via?.let { "Switch via $it?" } ?: "Switch to this route?", fontSize = 16.sp, fontWeight = FontWeight.Medium,
+                color = secondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (offer.congestionAhead) Text(localizeLabel("Heavy traffic on your current route"),
+                color = secondaryText, fontSize = KType.caption)
         }
         // What else changes: only shown when something does, so a plain faster way looks as before.
         val facts = fasterFacts(offer)
         if (facts.isNotEmpty()) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 facts.forEach { (text, warn) ->
-                    Row(Modifier.height(32.dp).clip(CircleShape).background(if (warn) Vela.warnFill(dark) else Vela.chip(dark)).padding(horizontal = 10.dp),
+                    Row(Modifier.height(32.dp).clip(CircleShape).background(if (warn) Vela.warnFill(dark) else interfaceChip).padding(horizontal = 10.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                         val c = if (warn) Vela.warnText(dark) else primaryText
                         Icon(if (text.endsWith("longer") || text.endsWith("shorter")) Icons.Filled.SwapHoriz else Icons.Filled.CurrencyPound, null,
@@ -753,14 +803,14 @@ fun FasterRouteCard(offer: FasterOffer, onKeep: () -> Unit, onTake: () -> Unit) 
             }
         }
         Box(Modifier.fillMaxWidth().height(4.dp)) {
-            Box(Modifier.fillMaxWidth(left.value).fillMaxHeight().clip(CircleShape).background(Vela.accent(dark)))
+            Box(Modifier.fillMaxWidth(left.value).fillMaxHeight().clip(CircleShape).background(interfaceAccent))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.weight(1f).height(60.dp).clip(CircleShape).background(Vela.chip(dark)).tap(onKeep), contentAlignment = Alignment.Center) {
-                Text("Keep mine", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = primaryText)
+            Box(Modifier.weight(1f).height(60.dp).clip(CircleShape).background(interfaceChip).tap(onKeep), contentAlignment = Alignment.Center) {
+                Text(localizeLabel("Keep mine"), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = primaryText)
             }
-            Box(Modifier.weight(1f).height(60.dp).clip(CircleShape).background(Vela.accent(dark)).tap(onTake), contentAlignment = Alignment.Center) {
-                Text("Take it", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Vela.onAccent(dark))
+            Box(Modifier.weight(1f).height(60.dp).clip(CircleShape).background(interfaceAccent).tap(onTake), contentAlignment = Alignment.Center) {
+                Text(localizeLabel("Take it"), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = interfaceOnAccent)
             }
         }
     }
@@ -773,15 +823,15 @@ fun EndTripCard(destination: String, onKeep: () -> Unit, onEnd: () -> Unit) {
     Column(Modifier.padding(horizontal = 12.dp).padding(bottom = 4.dp).fillMaxWidth().glass(RoundedCornerShape(28.dp)).padding(18.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text("End this trip?", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = primaryText)
-            Text("to $destination", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Vela.muted(dark), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(localizeLabel("End this trip?"), fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = primaryText)
+            Text("to $destination", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = secondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.weight(1f).height(60.dp).clip(CircleShape).background(Vela.accent(dark)).tap(onKeep), contentAlignment = Alignment.Center) {
-                Text("Keep going", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Vela.onAccent(dark))
+            Box(Modifier.weight(1f).height(60.dp).clip(CircleShape).background(interfaceAccent).tap(onKeep), contentAlignment = Alignment.Center) {
+                Text(localizeLabel("Keep going"), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = interfaceOnAccent)
             }
             Box(Modifier.weight(1f).height(60.dp).clip(CircleShape).background(Vela.closed).tap(onEnd), contentAlignment = Alignment.Center) {
-                Text("End trip", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text(localizeLabel("End trip"), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
             }
         }
     }
@@ -796,7 +846,7 @@ fun TripBar(nav: Navigator, onEnd: () -> Unit, onSteps: () -> Unit) {
     Row(Modifier.padding(horizontal = 12.dp).padding(bottom = 4.dp).fillMaxWidth().height(64.dp).glass(CircleShape).padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Box(Modifier.size(56.dp).clip(CircleShape).tap(onEnd), contentAlignment = Alignment.Center) {
-            Icon(Icons.Filled.Close, "End trip", tint = if (dark) hex(0xFCA5A5) else Vela.closed, modifier = Modifier.size(28.dp))
+            Icon(Icons.Filled.Close, localizeLabel("End trip"), tint = if (dark) hex(0xFCA5A5) else Vela.closed, modifier = Modifier.size(28.dp))
         }
         // One slim line: when you get there in teal, then the minutes and miles left.
         // The arrival time turns orange (or red) when traffic is making you late.
@@ -806,7 +856,7 @@ fun TripBar(nav: Navigator, onEnd: () -> Unit, onSteps: () -> Unit) {
         val spoken = "Arrive at ${Fmt.arrival(remaining)}, ${Fmt.duration(remaining)}, ${Fmt.distance(meters)} to go"
         // There: no "1 min · 20 yd" left over from the last moment of the drive.
         if (nav.arrived) Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-            Text("Arrived", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Vela.accentText(dark))
+            Text(localizeLabel("Arrived"), fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = interfaceAccentText)
         } else BoxWithConstraints(Modifier.weight(1f).clearAndSetSemantics { contentDescription = spoken }, contentAlignment = Alignment.Center) {
             // The biggest size where the whole line fits, dropping the small "am"/"pm" only when even that won't.
             val measurer = rememberTextMeasurer()
@@ -858,21 +908,21 @@ fun ArrivedCard(name: String, onPark: (() -> Unit)?, note: String?, done: () -> 
     val dark = LocalDark.current
     Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(28.dp)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Icon(Icons.Filled.SportsScore, null, tint = Vela.accentText(dark), modifier = Modifier.size(38.dp))
+            Icon(Icons.Filled.SportsScore, null, tint = interfaceAccentText, modifier = Modifier.size(38.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("You've arrived", fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = primaryText, maxLines = 1)
+                Text(localizeLabel("You've arrived"), fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = primaryText, maxLines = 1)
                 Text(name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = primaryText, maxLines = 3)
-                if (note != null) Text(note, fontSize = KType.subheadline, color = Vela.muted(dark), maxLines = 2)
+                if (note != null) Text(note, fontSize = KType.subheadline, color = secondaryText, maxLines = 2)
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.End)) {
             if (onPark != null && !parked) {
-                Box(Modifier.size(56.dp).clip(CircleShape).background(Vela.chip(dark)).tap { onPark(); parked = true }, contentAlignment = Alignment.Center) {
+                Box(Modifier.size(56.dp).clip(CircleShape).background(interfaceChip).tap { onPark(); parked = true }, contentAlignment = Alignment.Center) {
                     Icon(Icons.Filled.LocalParking, "Save parking", tint = primaryText, modifier = Modifier.size(26.dp))
                 }
             }
-            Box(Modifier.height(56.dp).clip(CircleShape).background(Vela.accent(dark)).tap(done).padding(horizontal = 18.dp), contentAlignment = Alignment.Center) {
-                Text("Done", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Vela.onAccent(dark))
+            Box(Modifier.height(56.dp).clip(CircleShape).background(interfaceAccent).tap(done).padding(horizontal = 18.dp), contentAlignment = Alignment.Center) {
+                Text(localizeLabel("Done"), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = interfaceOnAccent)
             }
         }
     }
@@ -918,17 +968,16 @@ private fun ProgressStrip(left: Float, height: Dp) {
     }
 }
 
-/** "Reported 12 min ago". */
+/** Age of a report in the current app language. */
 val WazeAlert.reportedText: String
     get() {
         val mins = max(((System.currentTimeMillis() - reportedAtMillis) / 60_000).toInt(), 0)
-        val w = when {
-            mins < 1 -> "just now"
-            mins < 60 -> "$mins min ago"
-            mins < 1440 -> "${mins / 60} h ago"
-            else -> "${mins / 1440} d ago"
+        return when {
+            mins < 1 -> kt("Reported just now", "Nahlášeno právě teď")
+            mins < 60 -> kt("Reported $mins min ago", "Nahlášeno před $mins min")
+            mins < 1440 -> kt("Reported ${mins / 60} h ago", "Nahlášeno před ${mins / 60} h")
+            else -> kt("Reported ${mins / 1440} d ago", "Nahlášeno před ${mins / 1440} d")
         }
-        return "Reported $w"
     }
 
 /** A traffic jam ahead, kept small and calm just over the trip bar: "Standstill traffic in 140 yd". */
@@ -939,7 +988,7 @@ fun TrafficLine(ahead: WazeAhead, modifier: Modifier = Modifier) {
     Row(modifier.height(34.dp).glass(CircleShape).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         WazeBadge(ahead.alert.kind, 20.dp)
-        Text("${ahead.alert.title} in ${Fmt.distance(ahead.meters)}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = ink,
+        Text(localizeLabel(ahead.alert.title) + " · " + Fmt.distance(ahead.meters), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = ink,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
@@ -957,7 +1006,7 @@ fun WazeCard(ahead: WazeAhead) {
             WazeBadge(a.kind, 58.dp)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(Fmt.distance(ahead.meters), fontSize = 38.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, maxLines = 1, lineHeight = 40.sp)
-                Text(a.title, fontSize = 21.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(localizeLabel(a.title), fontSize = 21.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(detail, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.9f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Text("Waze", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = Color.White.copy(alpha = 0.8f))
@@ -974,8 +1023,7 @@ fun WazeInfoToast(model: AppModel, info: WazeAlert, modifier: Modifier = Modifie
         delay(9_000)
         if (model.wazeInfo?.id == info.id) model.wazeInfo = null
     }
-    val padding = if (model.nav == null) Modifier.statusBarsPadding().padding(top = 64.dp) else Modifier
-    Box(modifier.fillMaxWidth().then(padding)) { WazeInfoCard(info) { model.wazeInfo = null } }
+    Box(modifier.fillMaxWidth()) { WazeInfoCard(info) { model.wazeInfo = null } }
 }
 
 @Composable
@@ -984,12 +1032,12 @@ fun WazeInfoCard(alert: WazeAlert, close: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         WazeBadge(alert.kind, 40.dp)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(alert.title, fontSize = KType.headline, fontWeight = FontWeight.SemiBold, color = primaryText)
+            Text(localizeLabel(alert.title), fontSize = KType.headline, fontWeight = FontWeight.SemiBold, color = primaryText)
             Text(listOfNotNull(alert.street, alert.reportedText).joinToString(" · "), fontSize = KType.subheadline, color = secondaryText)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (alert.thumbsUp > 0) Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.ThumbUp, null, tint = secondaryText, modifier = Modifier.size(12.dp))
-                    Text("${alert.thumbsUp} confirmed", fontSize = KType.caption, color = secondaryText)
+                    Text(kt("${alert.thumbsUp} confirmed", "Potvrzení od řidičů · ${alert.thumbsUp}"), fontSize = KType.caption, color = secondaryText)
                 }
                 // Waze's 0-10 trust in the report, as five dots.
                 Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -997,10 +1045,10 @@ fun WazeInfoCard(alert: WazeAlert, close: () -> Unit) {
                         Box(Modifier.size(6.dp).clip(CircleShape).background(if (i < (alert.reliability + 1) / 2) hex(MapIcons.wazeColor(alert.kind)) else secondaryText.copy(alpha = 0.25f)))
                     }
                 }
-                Text("via Waze", fontSize = KType.caption, color = secondaryText)
+                Text(localizeLabel("via Waze"), fontSize = KType.caption, color = secondaryText)
             }
         }
-        Icon(Icons.Filled.Close, "Close", tint = secondaryText, modifier = Modifier.size(28.dp).clip(CircleShape).tap(close).padding(5.dp))
+        Icon(Icons.Filled.Close, localizeLabel("Close"), tint = secondaryText, modifier = Modifier.size(28.dp).clip(CircleShape).tap(close).padding(5.dp))
     }
 }
 
@@ -1044,7 +1092,7 @@ fun RouteWazeSummary(route: Route, onShow: ((WazeAlert) -> Unit)? = null, onFoun
     if (c.isEmpty()) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.VerifiedUser, null, tint = Vela.open, modifier = Modifier.size(18.dp))
-            Text("No crashes, roadworks or closures reported on this route", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Vela.open)
+            Text(localizeLabel("No crashes, roadworks or closures reported on this route"), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Vela.open)
         }
     } else {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1061,10 +1109,10 @@ fun RouteWazeSummary(route: Route, onShow: ((WazeAlert) -> Unit)? = null, onFoun
     }
     val kind = picked ?: return
     // Where each one is along the way; tap one to see it on the map.
-    ModalBottomSheet(onDismissRequest = { picked = null }, containerColor = Vela.sheet(dark), dragHandle = null) {
+    ModalBottomSheet(onDismissRequest = { picked = null }, containerColor = interfaceSheet, dragHandle = null) {
         Column(Modifier.padding(20.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(wazeLabel(kind, 2).replaceFirstChar { it.uppercase() } + " on this route", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold,
+                Text(kt(wazeLabel(kind, 2).replaceFirstChar { it.uppercase() } + " on this route", "Hlášení na trase"), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold,
                     color = primaryText, modifier = Modifier.weight(1f))
                 CircleIconButton(Icons.Filled.Close) { picked = null }
             }
@@ -1074,7 +1122,9 @@ fun RouteWazeSummary(route: Route, onShow: ((WazeAlert) -> Unit)? = null, onFoun
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         WazeBadge(a.kind, 34.dp)
                         Column(Modifier.weight(1f)) {
-                            Text("${Fmt.distance(along)} along the way", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = primaryText)
+                            Text(localizeLabel(a.title), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = primaryText)
+                            Text(kt("${Fmt.distance(along)} along the way", "${Fmt.distance(along)} po trase"),
+                                fontSize = 14.sp, color = secondaryText)
                             Text(listOfNotNull(a.street, a.reportedText).joinToString(" · "), fontSize = 15.sp, color = secondaryText)
                         }
                         Icon(Icons.Filled.Map, null, tint = secondaryText, modifier = Modifier.size(20.dp))
@@ -1086,13 +1136,13 @@ fun RouteWazeSummary(route: Route, onShow: ((WazeAlert) -> Unit)? = null, onFoun
 }
 
 fun wazeLabel(k: WazeAlert.Kind, n: Int) = when (k) {
-    WazeAlert.Kind.POLICE -> "police"
-    WazeAlert.Kind.ACCIDENT -> if (n == 1) "crash" else "crashes"
-    WazeAlert.Kind.HAZARD -> if (n == 1) "hazard" else "hazards"
-    WazeAlert.Kind.WEATHER -> "weather"
-    WazeAlert.Kind.ROADWORKS -> "roadworks"
-    WazeAlert.Kind.CLOSURE -> if (n == 1) "closure" else "closures"
-    WazeAlert.Kind.JAM -> if (n == 1) "jam" else "jams"
+    WazeAlert.Kind.POLICE -> kt("police", if (n == 1) "hlídka" else if (n in 2..4) "hlídky" else "hlídek")
+    WazeAlert.Kind.ACCIDENT -> kt(if (n == 1) "crash" else "crashes", if (n == 1) "nehoda" else if (n in 2..4) "nehody" else "nehod")
+    WazeAlert.Kind.HAZARD -> kt(if (n == 1) "hazard" else "hazards", if (n == 1) "nebezpečí" else "hlášení o nebezpečí")
+    WazeAlert.Kind.WEATHER -> kt("weather", "hlášení o počasí")
+    WazeAlert.Kind.ROADWORKS -> kt("roadworks", "práce na silnici")
+    WazeAlert.Kind.CLOSURE -> kt(if (n == 1) "closure" else "closures", if (n == 1) "uzavírka" else if (n in 2..4) "uzavírky" else "uzavírek")
+    WazeAlert.Kind.JAM -> kt(if (n == 1) "jam" else "jams", if (n == 1) "kolona" else if (n in 2..4) "kolony" else "kolon")
 }
 
 private val aircraftBlue = hex(0x1E88E5)
@@ -1104,13 +1154,13 @@ enum class NavAlert { CAMERA, WAZE, AVERAGE, AIRCRAFT }
 @Composable
 fun AlsoAheadPill(nav: Navigator, alerts: List<NavAlert>, onTap: () -> Unit) {
     Row(Modifier.height(40.dp).glass(CircleShape).tap(onTap).padding(horizontal = 14.dp)
-        .semantics { contentDescription = "Also ahead. Tap to show the next warning" },
+        .semantics { contentDescription = localizeLabel("Also ahead. Tap to show the next warning") },
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         // Two at most, with "+1" for any more. On a small phone the words "Also ahead" go first,
         // then the second warning, so the pill never runs off the screen.
         val width = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
         val shown = if (width < 360) 1 else 2
-        if (width >= 400) Text("Also ahead", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = secondaryText)
+        if (width >= 400) Text(localizeLabel("Also ahead"), fontSize = 15.sp, fontWeight = FontWeight.Medium, color = secondaryText)
         for (a in alerts.take(shown)) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             val label = when (a) {
                 NavAlert.CAMERA -> nav.cameraAhead?.let { CameraBadge(it.kind, 24.dp); Fmt.distance(it.meters) }
@@ -1145,7 +1195,7 @@ fun AircraftCard(aircraft: PoliceAircraft, meters: Double) {
     val dark = LocalDark.current
     val detail = listOfNotNull(aircraft.altitudeFeet?.let { if (!Fmt.metric) "${it.toInt()} ft up" else "${(it * 0.3048).toInt()} m up" },
         aircraft.callsign ?: aircraft.registration).joinToString(" · ")
-    Row(Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(18.dp)).clip(RoundedCornerShape(18.dp)).background(Vela.sheet(dark)).padding(12.dp),
+    Row(Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(18.dp)).clip(RoundedCornerShape(18.dp)).background(interfaceSheet).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Box(Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(aircraftBlue), contentAlignment = Alignment.Center) {
             Icon(if (aircraft.helicopter) Icons.Filled.Toys else Icons.Filled.Flight, null, tint = Color.White, modifier = Modifier.size(22.dp))
@@ -1162,7 +1212,8 @@ fun AircraftCard(aircraft: PoliceAircraft, meters: Double) {
 
 @Composable
 fun WazeBadge(kind: WazeAlert.Kind, size: Dp = 28.dp) {
-    val bmp = remember(kind) { MapIcons.waze(kind).asImageBitmap() }
+    val theme = AppSettings.markerTheme
+    val bmp = remember(kind, theme) { MapIcons.waze(kind).asImageBitmap() }
     Image(bmp, null, Modifier.size(size))
 }
 
@@ -1179,11 +1230,11 @@ fun AverageCheckCard(check: AverageCheck) {
     val over = check.limitKmh?.let { check.averageKmh > it + 2 } ?: false
     val fg = if (over) Color.White else primaryText
     val sub = if (over) Color.White.copy(alpha = 0.9f) else secondaryText
-    Row(Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(18.dp)).clip(RoundedCornerShape(18.dp)).background(if (over) Vela.closed else Vela.sheet(dark)).padding(12.dp),
+    Row(Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(18.dp)).clip(RoundedCornerShape(18.dp)).background(if (over) Vela.closed else interfaceSheet).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Icon(Icons.Filled.Speed, null, tint = if (over) Color.White else hex(0xF9AB00), modifier = Modifier.size(30.dp))
         Column(Modifier.weight(1f)) {
-            Text("Average speed check", fontSize = KType.subheadline, fontWeight = FontWeight.SemiBold, color = fg)
+            Text(localizeLabel("Average speed check"), fontSize = KType.subheadline, fontWeight = FontWeight.SemiBold, color = fg)
             Text("${Fmt.distance(max(check.metersLeft, 0.0))} left", fontSize = KType.caption, color = sub)
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1280,14 +1331,14 @@ fun LaneStrip(lanes: List<Lane>, turn: ManeuverType, exitAngle: Double?, tileSiz
     Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         lanes.take(6).forEach { lane ->
             val fill = if (driving) {
-                if (lane.valid) drivePanelAccent else drivePanel
-            } else if (lane.valid) Vela.accent(dark) else Vela.primary(dark).copy(alpha = 0.08f)
+                if (lane.valid) interfaceAccent else interfaceChip
+            } else if (lane.valid) interfaceAccent else primaryText.copy(alpha = 0.08f)
             val ink = if (driving) {
-                if (lane.valid) drivePanel else drivePanelSecondary
-            } else if (lane.valid) Vela.onAccent(dark) else Vela.muted(dark).copy(alpha = 0.8f)
+                if (lane.valid) interfaceOnAccent else secondaryText
+            } else if (lane.valid) interfaceOnAccent else secondaryText.copy(alpha = 0.8f)
             Box(Modifier.size(tileSize).clip(RoundedCornerShape(tileSize * 0.28f)).background(fill),
                 contentAlignment = Alignment.Center) {
-                Icon(laneIcon(pick(lane)), null, tint = ink, modifier = Modifier.size(tileSize * 2 / 3))
+                Icon(laneIcon(pick(lane)), null, tint = ink, modifier = Modifier.size(tileSize * if (driving) 0.82f else 0.67f))
             }
         }
     }
@@ -1318,21 +1369,18 @@ fun RoundaboutDiagram(
             tint = if (routeColor != Color.Unspecified) routeColor else interfaceAccentText)
         return
     }
-    val l = remember(shape, exit, clockwise) {
-        if (shape != null && shape.taken in shape.exits.indices) shape else {
-            // Evenly spread up to yours, a little short of the full circle.
-            val n = (exit ?: 1).coerceIn(1, 24)
-            val step = min(90.0, 300.0 / (n + 1))
-            val sign = if (clockwise) 1 else -1
-            RoundaboutShape(exits = (1..n).map { k -> ((180 + sign * k * step) + 360) % 360 }, taken = n - 1, clockwise = clockwise, complete = false)
-        }
+    val l = remember(shape, clockwise) {
+        val known = shape?.takeIf { it.taken in it.exits.indices }
+        if (known?.complete == true) known
+        else RoundaboutShape(listOf(known?.exits?.get(known.taken) ?: 0.0), 0,
+            clockwise = known?.clockwise ?: clockwise, complete = false)
     }
     val measurer = androidx.compose.ui.text.rememberTextMeasurer()
     val font = Rounded
     // Your way round in teal, every other road dim, on the see-through strip (dark or light).
     val dark = LocalDark.current
-    val lit = if (routeColor != Color.Unspecified) routeColor else Vela.accentText(dark)
-    val ink = if (inkColor != Color.Unspecified) inkColor else Vela.primary(dark)
+    val lit = if (routeColor != Color.Unspecified) routeColor else interfaceAccentText
+    val ink = if (inkColor != Color.Unspecified) inkColor else primaryText
     Canvas(modifier) {
         val w = size.width
         val c = Offset(w / 2, size.height / 2)
@@ -1345,9 +1393,7 @@ fun RoundaboutDiagram(
         val faint = ink.copy(alpha = 0.26f)
         val roadW = w * 0.075f
         // Every road and the circle, dim.
-        for (a in l.exits + l.entriesOnly + listOf(180.0)) {
-            drawLine(faint, pt(a, ring), pt(a, if (a in l.entriesOnly) edge * 0.85f else edge), roadW, StrokeCap.Round)
-        }
+        for (a in l.exits + 180.0) drawLine(faint, pt(a, ring), pt(a, edge), roadW, StrokeCap.Round)
         drawCircle(faint, ring, c, style = Stroke(roadW))
         // Yours: in from the bottom, round the way traffic goes, and out.
         val out = l.exits[l.taken]
@@ -1377,14 +1423,14 @@ fun RoundaboutDiagram(
         drawPath(head, lit)
         if (exit != null) {
             val t = measurer.measure("$exit", TextStyle(color = ink, fontWeight = FontWeight.ExtraBold, fontFamily = font,
-                fontSize = (w * (if (exit >= 10) 0.17f else 0.22f) / density).sp))
+                fontSize = (w * (if (exit >= 10) 0.23f else 0.31f) / density).sp))
             drawText(t, topLeft = Offset(c.x - t.size.width / 2, c.y - t.size.height / 2))
         }
     }
 }
 
 /** "+3 min" for a stop's detour; "On the way" when it costs next to nothing. */
-fun detourShort(s: Double): String = if (s < 60) "On the way" else "+${Math.round(s / 60)} min"
+fun detourShort(s: Double): String = if (s < 60) localizeLabel("On the way") else "+${Math.round(s / 60)} min"
 
 fun detourColor(s: Double): Color = when {
     s < 180 -> Vela.open

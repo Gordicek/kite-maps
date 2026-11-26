@@ -1,16 +1,19 @@
 package app.kite.ui
 
+import androidx.compose.ui.res.stringResource
+import app.kite.R
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -39,6 +42,8 @@ import app.kite.core.WazeAlert
 @Composable
 fun LayersSheet(liveCount: Int? = null, close: () -> Unit) {
     val s = AppSettings
+    val sections = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     var editColors by rememberSaveable { mutableStateOf(false) }
     val hasHeatmap = WazeAlert.Kind.POLICE in Waze.shares
     ModalBottomSheet(
@@ -50,92 +55,140 @@ fun LayersSheet(liveCount: Int? = null, close: () -> Unit) {
     ) {
         Column(Modifier.fillMaxHeight(0.90f).fillMaxWidth().padding(horizontal = 20.dp).navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Layers", fontSize = 29.sp, fontWeight = FontWeight.ExtraBold, color = primaryText,
+                Text(stringResource(R.string.layers_title), fontSize = 29.sp, fontWeight = FontWeight.ExtraBold, color = primaryText,
                     modifier = Modifier.weight(1f))
                 CircleIconButton(Icons.Filled.Close, description = "Close layers", onClick = close)
             }
-            Column(
-                Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 20.dp),
+            LazyColumn(
+                Modifier.fillMaxWidth().weight(1f),
+                state = sections,
+                contentPadding = PaddingValues(bottom = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                LayerSection("Map type") {
-                    Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        BasemapCard("Default", satellite = false, selected = !s.satellite, modifier = Modifier.weight(1f)) { s.satellite = false }
-                        BasemapCard("Satellite", satellite = true, selected = s.satellite, modifier = Modifier.weight(1f)) { s.satellite = true }
-                    }
-                }
-                LayerSection("Appearance") {
-                    MapAppearance(s.mapStyleMode) { s.mapStyleMode = it }
-                    Text("App appearance", fontSize = KType.caption, fontWeight = FontWeight.SemiBold, color = secondaryText)
-                    Segmented(ThemeMode.entries.toList(), s.theme, { it.label }) { s.theme = it }
-                    FilledTonalButton({ editColors = !editColors }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Filled.Palette, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Interface colors", Modifier.weight(1f))
-                        Icon(if (editColors) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null)
-                    }
-                    if (editColors) Column(Modifier.clip(RoundedCornerShape(16.dp)).background(interfaceSurface)) {
-                        MapInterfaceColors()
-                    }
-                }
-                LayerSection("Place icons") {
-                    LayerRow {
-                        if (!s.noGoogle) LayerToggle(Icons.Filled.Place, "Google Maps", s.googleMapPlaces) { s.googleMapPlaces = it }
-                        LayerToggle(Icons.Filled.Map, "OpenStreetMap", s.openMapPlaces) { s.openMapPlaces = it }
-                    }
-                }
-                LayerSection("Routes & terrain") {
-                    LayerRow {
-                        LayerToggle(Icons.Filled.Hiking, "Hiking", s.hikingTrails) { s.hikingTrails = it }
-                        LayerToggle(Icons.Filled.PedalBike, "Cycling", s.bikeTrails) { s.bikeTrails = it }
-                    }
-                    LayerRow {
-                        LayerToggle(Icons.Filled.Tram, "Transit", s.transitLines) { s.transitLines = it }
-                        LayerToggle(Icons.Filled.Landscape, "Hillshade", s.terrain) { s.terrain = it }
-                    }
-                    if (s.standardMap && s.activeMapboxToken != null) LayerRow {
-                        LayerToggle(Icons.Filled.Terrain, "3D terrain", s.terrain3D) { s.terrain3D = it }
-                    }
-                }
-                LayerSection("Road activity") {
-                    LayerRow {
-                        LayerToggle(Icons.Filled.Traffic, "Traffic", s.traffic) { s.traffic = it }
-                        LayerToggle("Road alerts", s.wazeOn && s.wazeOnMap, {
-                            WazeBadge(if (hasHeatmap) WazeAlert.Kind.POLICE else WazeAlert.Kind.CLOSURE, 25.dp)
-                        }) { enabled ->
-                            if (enabled) s.waze = true
-                            s.wazeOnMap = enabled
+                item {
+                    LayerSection("Map type") {
+                        Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            BasemapCard("Default", satellite = false, selected = !s.satellite, modifier = Modifier.weight(1f)) { s.satellite = false }
+                            BasemapCard("Satellite", satellite = true, selected = s.satellite, modifier = Modifier.weight(1f)) { s.satellite = true }
                         }
                     }
-                    LayerRow {
-                        LayerToggle("Speed cameras", s.speedCameras, { CameraBadge(RoadCamera.Kind.SPEED, 25.dp) }) {
-                            s.speedCameras = it
+                }
+                item {
+                    LayerSection(localizeLabel("Appearance")) {
+                        Text(kt("Map appearance", "Vzhled mapy"), fontSize = KType.caption, fontWeight = FontWeight.SemiBold, color = secondaryText)
+                        AppearanceOptions(s.mapStyleMode, MapStyleMode.entries, kt("App", "Aplikace")) { s.mapStyleMode = it }
+                        Text(localizeLabel("App appearance"), fontSize = KType.caption, fontWeight = FontWeight.SemiBold, color = secondaryText)
+                        AppearanceOptions(s.theme, ThemeMode.entries, kt("System", "Systém")) { s.theme = it }
+                        FilledTonalButton({ editColors = !editColors }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Filled.Palette, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(localizeLabel("Interface colors"), Modifier.weight(1f))
+                            Icon(if (editColors) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null)
                         }
-                        LayerToggle("Plate cameras", s.plateCameras, { CameraBadge(RoadCamera.Kind.PLATE, 25.dp) }) {
-                            s.plateCameras = it
+                        if (editColors) Column(Modifier.clip(RoundedCornerShape(16.dp)).background(interfaceSurface)) {
+                            MapInterfaceColors()
                         }
                     }
-                    LayerRow {
-                        LayerToggle(Icons.Filled.Videocam, "Surveillance", s.surveillanceCameras) { s.surveillanceCameras = it }
-                        LayerToggle(Icons.Filled.LiveTv, "Live cameras", s.liveCams && (s.liveRoadCams || s.showsWebcams)) { enabled ->
-                            s.liveCams = enabled
-                            if (enabled) {
-                                s.liveRoadCams = true
-                                s.liveWebcams = true
+                }
+                item {
+                    LayerSection("Place icons") {
+                        LayerRow {
+                            if (!s.noGoogle) LayerToggle(Icons.Filled.Place, "Google Maps", s.googleMapPlaces) { s.googleMapPlaces = it }
+                            LayerToggle(Icons.Filled.Map, "OpenStreetMap", s.openMapPlaces) { s.openMapPlaces = it }
+                        }
+                    }
+                }
+                item {
+                    LayerSection("Routes & terrain") {
+                        LayerRow {
+                            LayerToggle(Icons.Filled.Hiking, "Hiking routes", s.hikingTrails) { s.hikingTrails = it }
+                            LayerToggle(Icons.Filled.PedalBike, localizeLabel("Cycling routes"), s.bikeTrails) { s.bikeTrails = it }
+                        }
+                        LayerRow {
+                            LayerToggle(Icons.Filled.Tram, localizeLabel("Transit"), s.transitLines) { s.transitLines = it }
+                            LayerToggle(Icons.Filled.Landscape, localizeLabel("Hillshade"), s.terrain) { s.terrain = it }
+                        }
+                        if (s.standardMap && s.activeMapboxToken != null) LayerRow {
+                            LayerToggle(Icons.Filled.Terrain, localizeLabel("3D terrain"), s.terrain3D) { s.terrain3D = it }
+                        }
+                    }
+                }
+                item(key = "on-map") {
+                    FilledTonalButton({
+                        s.layersOnMapExpanded = !s.layersOnMapExpanded
+                        if (s.layersOnMapExpanded) scope.launch {
+                            withFrameNanos { }
+                            val header = sections.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "on-map" }
+                            if (header != null) {
+                                sections.animateScrollToItem(header.index)
                             }
                         }
+                    }, Modifier.fillMaxWidth()) {
+                        Icon(Icons.Filled.Map, null, Modifier.size(20.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(stringResource(R.string.on_map), Modifier.weight(1f))
+                        Icon(if (s.layersOnMapExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null)
                     }
-                    if (hasHeatmap) LayerRow {
-                        LayerToggle(Icons.Filled.LocalFireDepartment, "Police heat map", s.wazeOn && s.wazeHeatmap) { enabled ->
-                            if (enabled) s.waze = true
-                            s.wazeHeatmap = enabled
-                        }
-                    }
-                    if (liveCount != null && s.wazeOn && (s.wazeOnMap || s.wazeHeatmap)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Box(Modifier.size(7.dp).clip(CircleShape).background(Vela.open))
-                            Text("$liveCount live Waze report${if (liveCount == 1) "" else "s"}",
-                                fontSize = KType.caption, color = secondaryText)
+                }
+                item {
+                    androidx.compose.animation.AnimatedVisibility(s.layersOnMapExpanded) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (s.standardMap && s.activeMapboxToken != null) {
+                                LayerRow {
+                                    LayerToggle(Icons.Filled.Apartment, localizeLabel("3D buildings"), s.mapBuildings) { s.mapBuildings = it }
+                                    LayerToggle(Icons.Filled.Park, localizeLabel("Trees"), s.mapTrees) { s.mapTrees = it }
+                                }
+                                LayerRow {
+                                    LayerToggle(Icons.Filled.Lightbulb, localizeLabel("Street lamps"), s.streetLamps) { s.streetLamps = it }
+                                }
+                            }
+                            LayerRow {
+                                LayerToggle(Icons.Filled.DirectionsWalk, localizeLabel("Footpaths"), s.footpaths) { s.footpaths = it }
+                                LayerToggle(Icons.Filled.PedalBike, localizeLabel("Cycleways"), s.cycleways) { s.cycleways = it }
+                            }
+                            LayerRow {
+                                LayerToggle(Icons.Filled.Cloud, stringResource(R.string.route_weather), s.routeWeather) { s.routeWeather = it }
+                            }
+                            LayerRow {
+                                LayerToggle(Icons.Filled.Traffic, localizeLabel("Traffic"), s.traffic) { s.traffic = it }
+                                LayerToggle("Road alerts", s.wazeOn && s.wazeOnMap, {
+                                    WazeBadge(if (hasHeatmap) WazeAlert.Kind.POLICE else WazeAlert.Kind.CLOSURE, 25.dp)
+                                }) { enabled ->
+                                    if (enabled) s.waze = true
+                                    s.wazeOnMap = enabled
+                                }
+                            }
+                            LayerRow {
+                                LayerToggle("Speed cameras", s.speedCameras, { CameraBadge(RoadCamera.Kind.SPEED, 25.dp) }) {
+                                    s.speedCameras = it
+                                }
+                                LayerToggle("Plate cameras", s.plateCameras, { CameraBadge(RoadCamera.Kind.PLATE, 25.dp) }) {
+                                    s.plateCameras = it
+                                }
+                            }
+                            LayerRow {
+                                LayerToggle(Icons.Filled.Videocam, "Surveillance", s.surveillanceCameras) { s.surveillanceCameras = it }
+                                LayerToggle(Icons.Filled.LiveTv, localizeLabel("Live cameras"), s.liveCams && (s.liveRoadCams || s.showsWebcams)) { enabled ->
+                                    s.liveCams = enabled
+                                    if (enabled) {
+                                        s.liveRoadCams = true
+                                        s.liveWebcams = true
+                                    }
+                                }
+                            }
+                            if (hasHeatmap) LayerRow {
+                                LayerToggle(Icons.Filled.LocalFireDepartment, localizeLabel("Police heat map"), s.wazeOn && s.wazeHeatmap) { enabled ->
+                                    if (enabled) s.waze = true
+                                    s.wazeHeatmap = enabled
+                                }
+                            }
+                            if (liveCount != null && s.wazeOn && (s.wazeOnMap || s.wazeHeatmap)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Box(Modifier.size(7.dp).clip(CircleShape).background(Vela.open))
+                                    Text("$liveCount live Waze report${if (liveCount == 1) "" else "s"}",
+                                        fontSize = KType.caption, color = secondaryText)
+                                }
+                            }
                         }
                     }
                 }
@@ -147,7 +200,7 @@ fun LayersSheet(liveCount: Int? = null, close: () -> Unit) {
 @Composable
 private fun LayerSection(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, fontSize = KType.subheadline, fontWeight = FontWeight.Bold, color = primaryText)
+        Text(localizeLabel(title), fontSize = KType.subheadline, fontWeight = FontWeight.Bold, color = primaryText)
         content()
     }
 }
@@ -166,7 +219,7 @@ private fun BasemapCard(title: String, satellite: Boolean, selected: Boolean, mo
         BasemapPreview(satellite, Modifier.fillMaxWidth().height(78.dp))
         Row(Modifier.fillMaxWidth().heightIn(min = 45.dp).padding(horizontal = 12.dp, vertical = 7.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, color = primaryText, fontSize = KType.subheadline,
+            Text(localizeLabel(title), color = primaryText, fontSize = KType.subheadline,
                 fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             LayerCheck(selected)
         }
@@ -216,16 +269,16 @@ private fun BasemapPreview(satellite: Boolean, modifier: Modifier) {
 }
 
 @Composable
-private fun MapAppearance(selected: MapStyleMode, choose: (MapStyleMode) -> Unit) {
+private fun <T> AppearanceOptions(selected: T, modes: List<T>, automaticLabel: String, choose: (T) -> Unit) {
     val shape = RoundedCornerShape(16.dp)
     Row(Modifier.fillMaxWidth().clip(shape).background(interfaceGround).selectableGroup().padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        for (mode in MapStyleMode.entries) {
-            val (icon, label) = when (mode) {
-                MapStyleMode.SYSTEM -> Icons.Filled.SettingsBrightness to "App"
-                MapStyleMode.LIGHT -> Icons.Filled.LightMode to "Light"
-                MapStyleMode.DARK -> Icons.Filled.DarkMode to "Dark"
-                MapStyleMode.SUN -> Icons.Filled.WbTwilight to "Sunrise"
+        modes.forEachIndexed { index, mode ->
+            val (icon, label) = when (index) {
+                1 -> Icons.Filled.LightMode to kt("Light", "Světlý")
+                2 -> Icons.Filled.DarkMode to kt("Dark", "Tmavý")
+                3 -> Icons.Filled.WbTwilight to kt("Sunrise", "Slunce")
+                else -> Icons.Filled.SettingsBrightness to automaticLabel
             }
             val on = mode == selected
             val tint = if (on) interfaceAccentText else secondaryText
@@ -233,7 +286,7 @@ private fun MapAppearance(selected: MapStyleMode, choose: (MapStyleMode) -> Unit
                 .background(if (on) interfaceSurface else Color.Transparent)
                 .selectable(on, role = Role.RadioButton) { choose(mode) }.padding(vertical = 7.dp, horizontal = 2.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Icon(icon, if (mode == MapStyleMode.SUN) "Sunrise and sunset" else null, tint = tint, modifier = Modifier.size(19.dp))
+                Icon(icon, if (index == 3) kt("Sunrise and sunset", "Podle východu a západu slunce") else null, tint = tint, modifier = Modifier.size(19.dp))
                 Text(label, fontSize = KType.caption, fontWeight = if (on) FontWeight.Bold else FontWeight.Medium,
                     color = if (on) primaryText else secondaryText, textAlign = TextAlign.Center)
             }
@@ -256,7 +309,7 @@ private fun RowScope.LayerToggle(title: String, enabled: Boolean, icon: @Composa
         .toggleable(enabled, role = Role.Switch, onValueChange = toggle).padding(horizontal = 9.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(25.dp), contentAlignment = Alignment.Center) { icon() }
-        Text(title, color = primaryText, fontSize = KType.caption, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        Text(localizeLabel(title), color = primaryText, fontSize = KType.caption, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
         LayerCheck(enabled)
     }
 }

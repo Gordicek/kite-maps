@@ -64,4 +64,25 @@ class GooglePlaceMediaTests {
         assertTrue(second.photos.isEmpty())
     }
 
+
+    @Test fun publicPageReadsTheRatingDistributionAndContributorMetadata() {
+        val page = GooglePlaceMedia.publicReviewDetails("""{
+            "histogram":[1,2,7,23,180],
+            "reviews":[{"id":"a","author":"Dana","rating":5,"likes":12,
+                "avatar":"https://lh3.googleusercontent.com/a/Avatar"},
+                {"author":"Ignored host","rating":4,"likes":-2,"avatar":"https://example.com/a/Other"}]
+        }""")
+        assertEquals(listOf(1, 2, 7, 23, 180), page.histogram)
+        assertEquals("a", page.reviews.first().id)
+        assertEquals(12, page.reviews.first().likes)
+        assertEquals("https://lh3.googleusercontent.com/a/Avatar", page.reviews.first().avatar)
+        assertNull(page.reviews.last().avatar)
+        assertNull(page.reviews.last().likes)
+    }
+
+    @Test fun popularTimesIgnoreInvalidHoursAndDeduplicateTheProviderRows() {
+        val days = GooglePlaceMedia.popularTimes(Json.parse("""[[[7,[[15,92],[24,80],[16,57],[15,11]]],[0,[[9,20]]],[1,[[8,5],[9,125]]]]]"""))
+        assertEquals(listOf(BusyDay(1, listOf(BusyHour(8, 5))), BusyDay(7, listOf(BusyHour(15, 92), BusyHour(16, 57)))), days)
+    }
+
 }

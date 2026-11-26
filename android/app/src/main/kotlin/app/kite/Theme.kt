@@ -2,6 +2,11 @@
 
 package app.kite
 
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.MotionScheme
+import app.kite.core.Daylight
+import app.kite.core.LatLng
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,8 +26,10 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -58,28 +65,27 @@ object Vela {
     val camera = Color(0xFFFF8A00)
     val police = Color(0xFF2F7BFF)
 
-    fun accent(dark: Boolean) = if (dark) tealLight else Color(0xFF14B8A6)
+    fun accent(dark: Boolean) = if (dark) Color(0xFF3FA9F5) else Color(0xFF14B8A6)
     fun onAccent(@Suppress("UNUSED_PARAMETER") dark: Boolean) = Color(0xFF04241F)
-    fun accentText(dark: Boolean) = if (dark) tealLight else teal
-    fun sheet(dark: Boolean) = if (dark) Color(0xFF151F30) else Color.White
-    fun surface(dark: Boolean) = if (dark) Color(0xFF1A2638) else Color.White
-    fun ground(dark: Boolean) = if (dark) Color(0xFF0E1726) else Color(0xFFF2F5F9)
-    fun chip(dark: Boolean) = if (dark) Color(0xFF243349) else Color(0xFFEDF1F6)
+    fun accentText(dark: Boolean) = if (dark) Color(0xFF3FA9F5) else teal
+    fun sheet(dark: Boolean) = if (dark) Color(0xFF151517) else Color.White
+    fun surface(dark: Boolean) = if (dark) Color(0xFF232326) else Color.White
+    fun ground(dark: Boolean) = if (dark) Color(0xFF08090B) else Color(0xFFF2F5F9)
+    fun chip(dark: Boolean) = if (dark) Color(0xFF303034) else Color(0xFFEDF1F6)
     /** A soft amber for "worth knowing" chips, like a longer route or a road charge. */
     fun warnFill(dark: Boolean) = if (dark) Color(0xFF3A2A10) else Color(0xFFFDEFD9)
     fun warnText(dark: Boolean) = if (dark) Color(0xFFFBBF24) else Color(0xFF9A4A08)
     fun tonal(dark: Boolean) = if (dark) Color(0xFF12403C) else Color(0xFFCCFBF1)
     fun onTonal(dark: Boolean) = if (dark) Color(0xFF99F6E4) else Color(0xFF134E4A)
-    fun muted(dark: Boolean) = if (dark) Color(0xFFB4C3D7) else Color(0xFF64748B)
-    fun primary(dark: Boolean) = if (dark) Color.White else Color(0xFF0F172A)
+    fun muted(dark: Boolean) = if (dark) Color(0xFF9A9AA3) else Color(0xFF64748B)
+    fun primary(dark: Boolean) = if (dark) Color(0xFFF4F5F7) else Color(0xFF0F172A)
 }
 
 /** Whether the screen is in dark colors right now. */
 data class MapChrome(val accent: Color?, val panel: Color?) {
     fun panel(dark: Boolean): Color {
         val fallback = Vela.surface(dark)
-        val custom = panel ?: return fallback
-        return custom.withContrast(Vela.muted(dark), fallback)
+        return panel?.withContrast(Vela.muted(dark), fallback) ?: fallback
     }
 
     fun primary(dark: Boolean): Color =
@@ -99,25 +105,52 @@ private fun Color.withContrast(background: Color, fallback: Color): Color {
     return fallback
 }
 
-val mapControlTint: Color
-    @Composable get() = LocalMapChrome.current?.icon(LocalDark.current) ?: primaryText
 val LocalMapChrome = staticCompositionLocalOf<MapChrome?> { null }
+private val LocalInterfaceScheme = staticCompositionLocalOf<ColorScheme?> { null }
 
+val mapControlTint: Color @Composable get() {
+    val chrome = LocalMapChrome.current
+    return if (chrome?.accent != null) interfaceAccentText else primaryText
+}
 val interfaceSurface: Color @Composable get() =
-    LocalMapChrome.current?.panel(LocalDark.current) ?: Vela.surface(LocalDark.current)
+    LocalMapChrome.current?.takeIf { it.panel != null }?.panel(LocalDark.current)
+        ?: LocalInterfaceScheme.current?.surfaceContainerHigh ?: Vela.surface(LocalDark.current)
 val interfaceSheet: Color @Composable get() =
-    LocalMapChrome.current?.takeIf { it.panel != null }?.panel(LocalDark.current) ?: Vela.sheet(LocalDark.current)
+    LocalMapChrome.current?.takeIf { it.panel != null }?.panel(LocalDark.current)
+        ?: LocalInterfaceScheme.current?.surfaceContainerLow ?: Vela.sheet(LocalDark.current)
+val interfaceChip: Color @Composable get() =
+    LocalInterfaceScheme.current?.surfaceContainerHighest ?: Vela.chip(LocalDark.current)
+
+val interfaceTonal: Color @Composable get() =
+    LocalInterfaceScheme.current?.secondaryContainer ?: Vela.tonal(LocalDark.current)
+val interfaceOnTonal: Color @Composable get() =
+    LocalInterfaceScheme.current?.onSecondaryContainer ?: Vela.onTonal(LocalDark.current)
+
+val interfaceHighlight: Color @Composable get() =
+    LocalInterfaceScheme.current?.primaryContainer ?: lerp(interfaceSheet, interfaceAccent, 0.13f)
+val interfaceOnHighlight: Color @Composable get() =
+    LocalInterfaceScheme.current?.onPrimaryContainer ?: primaryText
+
 val interfaceGround: Color @Composable get() {
     val dark = LocalDark.current
-    val fallback = Vela.ground(dark)
+    val fallback = LocalInterfaceScheme.current?.background ?: Vela.ground(dark)
     return LocalMapChrome.current?.takeIf { it.panel != null }?.let { lerp(fallback, it.panel(dark), 0.66f) } ?: fallback
 }
 val interfaceAccent: Color @Composable get() =
-    LocalMapChrome.current?.accent ?: Vela.accent(LocalDark.current)
-val interfaceAccentText: Color @Composable get() =
-    LocalMapChrome.current?.primary(LocalDark.current) ?: Vela.accentText(LocalDark.current)
+    MaterialTheme.colorScheme.primary
+val interfaceAccentText: Color @Composable get() {
+    val chrome = LocalMapChrome.current
+    val scheme = LocalInterfaceScheme.current
+    val dark = LocalDark.current
+    return when {
+        chrome?.accent != null -> chrome.primary(dark)
+        scheme != null -> scheme.primary.withContrast(interfaceSurface, primaryText)
+        chrome != null -> chrome.primary(dark)
+        else -> Vela.accentText(dark)
+    }
+}
 val interfaceOnAccent: Color @Composable get() =
-    if (interfaceAccent.luminance() > 0.179f) Color(0xFF071525) else Color.White
+    MaterialTheme.colorScheme.onPrimary
 
 val LocalDark = staticCompositionLocalOf { true }
 
@@ -144,22 +177,66 @@ object KType {
     val caption2 = 13.sp
 }
 
+private val LocalWallpaperPalettes = staticCompositionLocalOf<Pair<MapPalette, MapPalette>?> { null }
+
 @Composable
-fun KiteTheme(content: @Composable () -> Unit) {
+internal fun wallpaperMapPalette(dark: Boolean): MapPalette? =
+    LocalWallpaperPalettes.current?.let { if (dark) it.second else it.first }
+
+@Composable
+internal fun mapPalette(dark: Boolean): MapPalette =
+    AppSettings.resolveMapPalette(dark, wallpaperMapPalette(dark))
+
+internal fun ColorScheme.mapArtwork(dark: Boolean): MapPalette {
+    fun hex(color: Color) = String.format(java.util.Locale.ROOT, "#%06X", color.toArgb() and 0xFFFFFF)
+    val ground = lerp(surfaceContainerLow, primaryContainer, if (dark) 0.19f else 0.22f)
+    val water = lerp(Color(if (dark) 0xFF1F3E51 else 0xFFB4D7E6), surfaceVariant, 0.23f)
+    val parks = lerp(Color(if (dark) 0xFF31493D else 0xFFCADDC0), primaryContainer, 0.14f)
+    val buildings = lerp(surfaceContainerHighest, primary, if (dark) 0.23f else 0.12f)
+    val streets = if (dark) lerp(surfaceContainerHigh, primary, 0.23f) else surfaceBright
+    val highways = lerp(primaryContainer, primary, if (dark) 0.51f else 0.34f)
+    return MapPalette(listOf(ground, water, parks, buildings, streets, highways, primary).map(::hex))
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun KiteTheme(position: () -> LatLng?, content: @Composable () -> Unit) {
+    var clock by androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
+    androidx.compose.runtime.LaunchedEffect(AppSettings.theme) {
+        while (AppSettings.theme == ThemeMode.SUN) {
+            clock = System.currentTimeMillis()
+            kotlinx.coroutines.delay(60_000)
+        }
+    }
     val dark = when (AppSettings.theme) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
+        ThemeMode.SUN -> position()?.let { Daylight.isDark(it, clock) } ?: isSystemInDarkTheme()
     }
     fun parse(value: String?) = value?.let { Color(android.graphics.Color.parseColor(it)) }
     val chrome = MapChrome(parse(AppSettings.mapUiAccent), parse(if (dark) AppSettings.mapUiNightPanel else AppSettings.mapUiDayPanel))
+    val context = LocalContext.current
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val systemSchemes = remember(context, configuration) {
+        if (android.os.Build.VERSION.SDK_INT >= 31) dynamicLightColorScheme(context) to dynamicDarkColorScheme(context)
+        else null
+    }
+    val wallpaper = remember(systemSchemes) { systemSchemes?.let { it.first.mapArtwork(false) to it.second.mapArtwork(true) } }
+    val selected = if (AppSettings.interfacePalette == InterfacePalette.EXPRESSIVE)
+        systemSchemes?.let { if (dark) it.second else it.first } else null
     val panel = chrome.panel(dark)
-    val ground = if (chrome.panel != null) lerp(Vela.ground(dark), panel, 0.66f) else Vela.ground(dark)
-    val accent = if (chrome.accent != null) chrome.primary(dark) else if (dark) Vela.tealLight else Vela.teal
-    val onAccent = if (accent.luminance() > 0.179f) Color(0xFF071525) else Color.White
-    val scheme = if (dark) darkColorScheme(
+    val baseGround = selected?.background ?: Vela.ground(dark)
+    val ground = if (chrome.panel != null) lerp(baseGround, panel, 0.66f) else baseGround
+    val accent = if (chrome.accent != null) chrome.primary(dark) else selected?.primary ?: Vela.accentText(dark)
+    val onAccent = if (chrome.accent == null && selected != null) selected.onPrimary
+        else if (accent.luminance() > 0.179f) Color(0xFF071525) else Color.White
+    val scheme = selected?.copy(
         primary = accent, onPrimary = onAccent, background = ground,
-        surface = if (chrome.panel != null) panel else Vela.sheet(true), onSurface = Color.White, onBackground = Color.White,
+        surface = if (chrome.panel != null) panel else selected.surface,
+    ) ?: if (dark) darkColorScheme(
+        primary = accent, onPrimary = onAccent, background = ground,
+        surface = if (chrome.panel != null) panel else Vela.sheet(true), onSurface = Vela.primary(true), onBackground = Vela.primary(true),
         surfaceVariant = Vela.chip(true), onSurfaceVariant = Vela.muted(true),
         secondaryContainer = Vela.tonal(true), onSecondaryContainer = Vela.onTonal(true),
     ) else lightColorScheme(
@@ -168,23 +245,26 @@ fun KiteTheme(content: @Composable () -> Unit) {
         surfaceVariant = Vela.chip(false), onSurfaceVariant = Vela.muted(false),
         secondaryContainer = Vela.tonal(false), onSecondaryContainer = Vela.onTonal(false),
     )
-    val base = Typography()
-    val type = Typography(
-        displayLarge = base.displayLarge.copy(fontFamily = Rounded),
-        headlineLarge = base.headlineLarge.copy(fontFamily = Rounded),
-        headlineMedium = base.headlineMedium.copy(fontFamily = Rounded),
-        titleLarge = base.titleLarge.copy(fontFamily = Rounded, fontSize = KType.title3),
-        titleMedium = base.titleMedium.copy(fontFamily = Rounded, fontSize = KType.headline),
-        titleSmall = base.titleSmall.copy(fontFamily = Rounded),
-        bodyLarge = base.bodyLarge.copy(fontFamily = Rounded, fontSize = KType.body),
-        bodyMedium = base.bodyMedium.copy(fontFamily = Rounded, fontSize = KType.subheadline),
-        bodySmall = base.bodySmall.copy(fontFamily = Rounded, fontSize = KType.footnote),
-        labelLarge = base.labelLarge.copy(fontFamily = Rounded, fontSize = KType.callout),
-        labelMedium = base.labelMedium.copy(fontFamily = Rounded),
-        labelSmall = base.labelSmall.copy(fontFamily = Rounded),
-    )
-    CompositionLocalProvider(LocalDark provides dark, LocalMapChrome provides chrome) {
-        MaterialTheme(colorScheme = scheme, typography = type) {
+    val type = remember {
+        val base = Typography()
+        Typography(
+            displayLarge = base.displayLarge.copy(fontFamily = Rounded),
+            headlineLarge = base.headlineLarge.copy(fontFamily = Rounded),
+            headlineMedium = base.headlineMedium.copy(fontFamily = Rounded),
+            titleLarge = base.titleLarge.copy(fontFamily = Rounded, fontSize = KType.title3),
+            titleMedium = base.titleMedium.copy(fontFamily = Rounded, fontSize = KType.headline),
+            titleSmall = base.titleSmall.copy(fontFamily = Rounded),
+            bodyLarge = base.bodyLarge.copy(fontFamily = Rounded, fontSize = KType.body),
+            bodyMedium = base.bodyMedium.copy(fontFamily = Rounded, fontSize = KType.subheadline),
+            bodySmall = base.bodySmall.copy(fontFamily = Rounded, fontSize = KType.footnote),
+            labelLarge = base.labelLarge.copy(fontFamily = Rounded, fontSize = KType.callout),
+            labelMedium = base.labelMedium.copy(fontFamily = Rounded),
+            labelSmall = base.labelSmall.copy(fontFamily = Rounded),
+        )
+    }
+    CompositionLocalProvider(LocalDark provides dark, LocalMapChrome provides chrome, LocalInterfaceScheme provides selected,
+        LocalWallpaperPalettes provides wallpaper) {
+        MaterialExpressiveTheme(colorScheme = scheme, typography = type, motionScheme = MotionScheme.expressive()) {
             CompositionLocalProvider(
                 LocalContentColor provides scheme.onSurface,
                 LocalTextStyle provides TextStyle(fontFamily = Rounded, fontSize = KType.body),
@@ -196,11 +276,11 @@ fun KiteTheme(content: @Composable () -> Unit) {
 }
 
 /** Primary and secondary text colors for the current look. */
-val primaryText: Color @Composable get() = Vela.primary(LocalDark.current)
-val secondaryText: Color @Composable get() = Vela.muted(LocalDark.current)
+val primaryText: Color @Composable get() = LocalInterfaceScheme.current?.onSurface ?: Vela.primary(LocalDark.current)
+val secondaryText: Color @Composable get() = LocalInterfaceScheme.current?.onSurfaceVariant ?: Vela.muted(LocalDark.current)
 
 object Fmt {
-    private val country: String get() = Locale.getDefault().country
+    private val country: String get() = AppSettings.language.locale.country
     private val autoImperial: Boolean get() = country in setOf("US", "GB", "LR", "MM", "UK")
 
     val metric: Boolean
@@ -223,7 +303,7 @@ object Fmt {
     fun distance(m: Double): String {
         if (metric) {
             if (m < 950) return "${r(m / 10) * 10} m"
-            return if (m < 9_950) String.format(Locale.US, "%.1f km", m / 1000) else "${r(m / 1000)} km"
+            return if (m < 9_950) String.format(AppSettings.language.locale, "%.1f km", m / 1000) else "${r(m / 1000)} km"
         }
         if (yards) {
             val yd = m * 1.09361
@@ -238,6 +318,7 @@ object Fmt {
 
     /** Words for the voice: "400 feet", "1.2 miles". */
     fun spokenDistance(m: Double): String {
+        if (czechUi) return distance(m).replace(" mi", " mil").replace(" yd", " yardů").replace(" ft", " stop")
         if (metric) {
             if (m < 950) return "${r(m / 50) * 50} meters"
             val km = m / 1000
@@ -259,7 +340,8 @@ object Fmt {
 
     /** A limit for the voice: "30 miles per hour" (to the posted 5), "50 kilometers per hour". */
     fun spokenSpeed(kmh: Double): String =
-        if (metric) "${max(5, r(kmh / 5) * 5)} kilometers per hour" else "${postedMph(kmh)} miles per hour"
+        if (metric) "${max(5, r(kmh / 5) * 5)} " + kt("kilometers per hour", "kilometrů v hodině")
+        else "${postedMph(kmh)} " + kt("miles per hour", "mil v hodině")
 
     /**
      * A limit in mph as the sign shows it, to the nearest 5. Never 0: a road mapped "walk" (about
@@ -376,7 +458,7 @@ fun maneuverIcon(t: ManeuverType): ImageVector = when (t) {
 @Composable
 fun Modifier.glass(shape: Shape, solid: Boolean = false): Modifier {
     val dark = LocalDark.current
-    val surface = LocalMapChrome.current?.panel(dark) ?: Vela.surface(dark)
+    val surface = interfaceSurface
     return this
         .clip(shape)
         .background(surface.copy(alpha = if (solid) 1f else if (dark) 0.96f else 0.91f))
@@ -386,10 +468,9 @@ fun Modifier.glass(shape: Shape, solid: Boolean = false): Modifier {
 /** Round buttons floating on the map (layers, location, compass). */
 @Composable
 fun MapFab(icon: ImageVector, tint: Color? = null, size: Dp = 48.dp, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val dark = LocalDark.current
-    val chrome = LocalMapChrome.current ?: MapChrome(null, null)
+    val ink = tint?.withContrast(interfaceSurface, primaryText) ?: mapControlTint
     Box(modifier.size(size).glass(CircleShape, solid = true).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Icon(icon, null, tint = chrome.icon(dark, tint), modifier = Modifier.size(size * 0.46f))
+        Icon(icon, null, tint = ink, modifier = Modifier.size(size * 0.46f))
     }
 }
 
@@ -402,7 +483,7 @@ fun PillButton(title: String, icon: ImageVector, filled: Boolean = false, modifi
     val fill = when {
         filled -> interfaceAccent
         customized -> interfaceGround
-        else -> Vela.tonal(dark)
+        else -> LocalInterfaceScheme.current?.secondaryContainer ?: Vela.tonal(dark)
     }
     Row(
         modifier.height(52.dp).clip(CircleShape).background(fill)
@@ -412,7 +493,7 @@ fun PillButton(title: String, icon: ImageVector, filled: Boolean = false, modifi
         val c = when {
             filled -> interfaceOnAccent
             customized -> interfaceAccentText
-            else -> Vela.onTonal(dark)
+            else -> LocalInterfaceScheme.current?.onSecondaryContainer ?: Vela.onTonal(dark)
         }
         Icon(icon, null, tint = c, modifier = Modifier.size(20.dp))
         Text(title, color = c, fontWeight = FontWeight.Bold, fontSize = KType.body, maxLines = 1)
@@ -424,7 +505,7 @@ fun CircleIconButton(icon: ImageVector, modifier: Modifier = Modifier, descripti
     val chrome = LocalMapChrome.current
     val customized = chrome?.accent != null || chrome?.panel != null
     Box(modifier.size(44.dp).clip(CircleShape)
-        .background(if (customized) interfaceGround else Vela.chip(LocalDark.current)).clickable(onClick = onClick),
+        .background(if (customized) interfaceGround else LocalInterfaceScheme.current?.surfaceContainerHighest ?: Vela.chip(LocalDark.current)).clickable(onClick = onClick),
         contentAlignment = Alignment.Center) {
         Icon(icon, description, tint = if (customized) interfaceAccentText else primaryText, modifier = Modifier.size(20.dp))
     }

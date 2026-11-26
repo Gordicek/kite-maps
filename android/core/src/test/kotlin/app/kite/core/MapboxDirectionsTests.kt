@@ -56,6 +56,20 @@ class MapboxDirectionsTests {
         assertEquals(222.4, span.lengthMeters, 1.0)
     }
 
+    @Test fun showsLaneChoicesAtASignalBetweenTwoManeuvers() {
+        val data = fixture.replace(
+            """"intersections": [{"lanes":""",
+            """"intersections": [
+                {"location": [0, 0.002]},
+                {"location": [0, 0.0025], "traffic_signal": true, "lanes":"""
+        )
+        val route = MapboxDirections.parse(data.toByteArray()).single()
+        assertTrue(route.maneuvers[1].lanes.isEmpty())
+        val approach = route.laneApproaches.single()
+        assertEquals(listOf(true, false), approach.lanes.map { it.valid })
+        assertEquals(route.roadControls.single().along, approach.alongMeters, 1.0)
+    }
+
     @Test fun startsWithRoadControlsFromTheChosenRoute() {
         val marked = fixture.replace(
             """"intersections": [{"lanes":""",

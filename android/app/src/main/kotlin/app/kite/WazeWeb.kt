@@ -130,7 +130,14 @@ object WazeWeb {
     suspend fun fetch(url: String): ByteArray? = withContext(Dispatchers.Main) {
         // Switched off while a request was on its way: don't open the page again.
         if (!AppSettings.wazeOn) return@withContext null
-        openPage()
+        try {
+            openPage()
+        } catch (e: RuntimeException) {
+            android.util.Log.w("KiteWaze", "Road alerts WebView unavailable", e)
+            reset()
+            finish(ok = false)
+            return@withContext null
+        }
         val w = web
         if (w == null || !ready) { note = "page: didn't load"; return@withContext null }
         val js = """
@@ -203,6 +210,7 @@ object WazeWeb {
         if (web == null) {
             val a = activity?.get() ?: return
             val w = WebView(a)
+            web = w
             w.settings.javaScriptEnabled = true
             w.settings.domStorageEnabled = true
             // The phone's own Chrome name, without the parts that say "app web view", so the page and
@@ -214,6 +222,14 @@ object WazeWeb {
                 WebViewCompat.addDocumentStartJavaScript(w, watcher, setOf("https://www.waze.com"))
             }
             w.webViewClient = object : WebViewClient() {
+                override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
+                    if (web === view) {
+                        reset()
+                        finish(ok = false)
+                    }
+                    return true
+                }
+
                 override fun onPageFinished(view: WebView, url: String?) {
                     if (view === web && !ready) {
                         // Without a start-of-page script, watch from now on instead.
@@ -231,7 +247,6 @@ object WazeWeb {
             w.isFocusable = false
             w.setOnTouchListener { _, _ -> true }
             (a.window.decorView as? ViewGroup)?.addView(w, 0, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-            web = w
             w.loadUrl(Waze.pageURL)
             // Give up waiting after 25 seconds, so a stuck page never holds the map back.
             main.launch { delay(25_000); if (!ready && web === w) finish(ok = false) }

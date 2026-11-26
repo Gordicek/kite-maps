@@ -51,6 +51,35 @@ class CameraTests {
         assertEquals(listOf(direct.at, crossing.at), controls.map { it.at })
     }
 
+    @Test fun trafficControlsRespectTheSignalApproachAndParallelOneWayRoad() {
+        val north = listOf(ll(0.0, 0.0), ll(0.01, 0.0))
+        val raw = """{"elements":[
+          {"type":"node","id":1,"lat":0.002,"lon":0,"tags":{"highway":"traffic_signals","traffic_signals:direction":"forward"}},
+          {"type":"node","id":2,"lat":0.00245,"lon":0,"tags":{"highway":"traffic_signals","traffic_signals:direction":"backward"}},
+          {"type":"node","id":3,"lat":0.003,"lon":0.00006,"tags":{"highway":"traffic_signals"}},
+          {"type":"node","id":4,"lat":0.004,"lon":0,"tags":{"highway":"traffic_signals"}},
+          {"type":"way","nodes":[8,1,2,4,9],"tags":{"highway":"primary"},
+            "geometry":[{"lat":0.001,"lon":0},{"lat":0.002,"lon":0},{"lat":0.00245,"lon":0},{"lat":0.004,"lon":0},{"lat":0.005,"lon":0}]},
+          {"type":"way","nodes":[10,3,11],"tags":{"highway":"primary","oneway":"-1"},
+            "geometry":[{"lat":0.002,"lon":0.00006},{"lat":0.003,"lon":0.00006},{"lat":0.005,"lon":0.00006}]}
+        ]}"""
+        val controls = Overpass.projectControls(Overpass.parseRoadControls(raw.toByteArray()), north)
+        assertEquals(2, controls.size)
+        assertEquals(0.002, controls.first().at!!.lat, 0.00001)
+        assertEquals(0.004, controls.last().at!!.lat, 0.00001)
+        val observations = Overpass.mergeRoadControls(controls, listOf(controls.first().copy(along = controls.first().along + 32)))
+        assertEquals(controls, observations)
+    }
+
+    @Test fun aDirectionalSignalAtTheEndOfAShortMappedWayIsStillVisible() {
+        val north = listOf(ll(0.0, 0.0), ll(0.01, 0.0))
+        val at = ll(0.002, 0.0)
+        val approach = Overpass.ControlWay(listOf(ll(0.00193, 0.0), at), 1)
+        val signal = Overpass.RoadsideNode(Overpass.ControlKind.SIGNAL, at, "forward", listOf(approach))
+        assertEquals(1, Overpass.projectControls(listOf(signal), north).size)
+        assertTrue(Overpass.projectControls(listOf(signal), north.reversed()).isEmpty())
+    }
+
     @Test fun missingSpeedAnnotationsDoNotExtendTheLastLimit() {
         val legs = listOf(mapOf("annotation" to mapOf("maxspeed" to listOf(mapOf("speed" to 70, "unit" to "km/h")))))
         val limits = OSRM.speedLimits(legs, doubleArrayOf(0.0, 100.0, 200.0))

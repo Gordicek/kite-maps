@@ -31,6 +31,27 @@ class NavCameraLayoutTests {
         assertFalse(NavGlide.needsCameraCorrection(fix.copy(lat = 49.592003), fix, 17.02, 17.0))
     }
 
+    @Test fun screenPuckRequiresTheActualViewportToMatchGuidance() {
+        val fix = LatLng(49.592, 17.252)
+        val insets = doubleArrayOf(0.0, 420.0, 0.0, 160.0)
+        fun matches(zoom: Double, pitch: Double, bearing: Double, actualInsets: DoubleArray?) =
+            NavGlide.matchesViewport(fix, fix, zoom, 17.0, pitch, 48.0, bearing, 0.0, actualInsets, insets)
+
+        assertTrue(matches(17.02, 48.1, 359.2, insets))
+        assertFalse(matches(12.0, 48.0, 0.0, insets))
+        assertFalse(matches(17.0, 0.0, 0.0, insets))
+        assertFalse(matches(17.0, 48.0, 45.0, insets))
+        assertFalse(matches(17.0, 48.0, 0.0, null))
+        assertFalse(matches(17.0, 48.0, 0.0, doubleArrayOf(0.0, 90.0, 0.0, 40.0)))
+    }
+
+    @Test fun nativeArrowMustProjectIntoThePaddedViewport() {
+        val insets = doubleArrayOf(0.0, 450.0, 0.0, 150.0)
+        assertTrue(NavGlide.matchesArrowPosition(200.0, 550.0, 400, 800, insets, 10.0))
+        assertFalse(NavGlide.matchesArrowPosition(200.0, 400.0, 400, 800, insets, 10.0))
+        assertFalse(NavGlide.matchesArrowPosition(-1.0, -1.0, 400, 800, insets, 10.0))
+    }
+
     @Test fun freshGpsReanchorsTheArrowAfterStartingWithACachedLocation() {
         assertFalse(NavGlide.reliableFix(ageMs = 90_000, accuracy = 8.0))
         assertFalse(NavGlide.reliableFix(ageMs = 600, accuracy = 1_000.0))
@@ -44,5 +65,13 @@ class NavCameraLayoutTests {
         assertEquals(28.0, NavGlide.shortestTurn(350.0, 18.0))
         assertEquals(-28.0, NavGlide.shortestTurn(18.0, 350.0))
         assertEquals(0.0, NavGlide.shortestTurn(90.0, 90.0))
+    }
+    @Test fun recoveryCentersTheOverlayAndNativeCameraAtTheSamePoint() {
+        for (height in listOf(160f, 520f, 800f)) {
+            val center = height / 2
+            assertEquals(center, NavGlide.carY(height, north = 0.3f, centered = true))
+            assertEquals(center, NavGlide.carY(height, compact = true, centered = true))
+            assertTrue(NavGlide.matchesArrowPosition(200.0, center.toDouble(), 400, height.toInt(), DoubleArray(4), 1.0))
+        }
     }
 }

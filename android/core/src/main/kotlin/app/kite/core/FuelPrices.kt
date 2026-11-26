@@ -29,6 +29,27 @@ object FuelPrices {
 
     private fun nearBritain(p: LatLng) = p.lat in 49.7..61.0 && p.lng in -8.3..2.0
 
+    /** Pick the main listing at each forecourt and order the stations by distance. */
+    fun rankedStations(places: List<Place>, origin: LatLng): List<Place> {
+        fun brand(p: Place) = Place.fold(p.name).replace(Regex("[^a-z0-9]+"), " ").trim()
+            .removePrefix("cerpaci stanice ").removePrefix("benzinka ").removeSuffix(" express").trim()
+        val primary = mutableListOf<Place>()
+        val ordered = places.filterNot { it.permanentlyClosed }.sortedWith(
+            compareByDescending<Place> { it.openNow == true }
+                .thenByDescending { it.fuelPrice != null }
+                .thenByDescending { it.source == "google" }
+                .thenByDescending { it.reviewCount ?: 0 })
+        for (place in ordered) {
+            if (primary.none {
+                val distance = it.location.distanceTo(place.location)
+                it.id == place.id || it.featureId != null && it.featureId == place.featureId ||
+                    distance < 20 && isStation(it) && isStation(place) ||
+                    distance < 85 && brand(it).isNotBlank() && brand(it) == brand(place)
+            }) primary += place
+        }
+        return primary.sortedBy { it.location.distanceTo(origin) }
+    }
+
     suspend fun ukQuotes(places: List<Place>): Map<String, Quote> {
         val candidates = places.filter { it.fuelPrice == null && isStation(it) && nearBritain(it.location) }
         if (candidates.isEmpty()) return emptyMap()

@@ -21,6 +21,28 @@ object MapIcons {
     private fun c(hex: Long, a: Float = 1f) = Color.argb((a * 255).toInt(), ((hex shr 16) and 0xFF).toInt(), ((hex shr 8) and 0xFF).toInt(), (hex and 0xFF).toInt())
 
     val kinds = listOf(
+        Kind("cat-pharmacy", Icons.Filled.LocalPharmacy, c(0x169173), listOf("pharmacy", "drugstore", "lekarna")),
+        Kind("cat-supermarket", Icons.Filled.LocalGroceryStore, c(0x347DCA), listOf("supermarket", "grocery", "potraviny")),
+        Kind("cat-bakery", Icons.Filled.BakeryDining, c(0xB65C3A), listOf("bakery", "pekarna")),
+        Kind("cat-charging", Icons.Filled.EvStation, c(0x319A83), listOf("charging", "electric vehicle")),
+        Kind("cat-water", Icons.Filled.WaterDrop, c(0x2C90BC), listOf("drinking water", "pitko", "water fountain")),
+        Kind("cat-parking", Icons.Filled.LocalParking, c(0x1A73E8), listOf("parking", "garage", "car park", "parkoviste", "parkovaci")),
+        Kind("cat-restroom", Icons.Filled.Wc, c(0x6E76C5), listOf("restroom", "toilets", "toalety")),
+        Kind("cat-stationery", Icons.Filled.Edit, c(0x6866BD), listOf("paper store", "stationery", "papirnictvi")),
+        Kind("cat-diy", Icons.Filled.Handyman, c(0xB07634), listOf("hardware", "diy", "home improvement")),
+        Kind("cat-book", Icons.Filled.MenuBook, c(0x935CA4), listOf("bookstore", "book store", "knihkupectvi")),
+        Kind("cat-clothes", Icons.Filled.Checkroom, c(0xA65381), listOf("clothing", "fashion", "obleceni")),
+        Kind("cat-repair", Icons.Filled.Build, c(0x477080), listOf("repair", "mechanic", "autoservis")),
+        Kind("cat-airport", Icons.Filled.Flight, c(0x4165A4), listOf("airport", "letiste")),
+        Kind("cat-bike", Icons.Filled.PedalBike, c(0x278566), listOf("bicycle", "bike shop", "cyklo")),
+        Kind("cat-pool", Icons.Filled.Pool, c(0x3287A6), listOf("swimming", "pool", "bazen")),
+        Kind("cat-play", Icons.Filled.ChildCare, c(0xB1752D), listOf("playground", "hriste")),
+        Kind("cat-lookout", Icons.Filled.Landscape, c(0x517D59), listOf("viewpoint", "lookout", "vyhlidka")),
+        Kind("cat-camp", Icons.Filled.Cabin, c(0x617D43), listOf("camp", "kemp")),
+        Kind("cat-worship", Icons.Filled.Church, c(0x8365A1), listOf("church", "worship", "kostel")),
+        Kind("cat-library", Icons.Filled.LocalLibrary, c(0x586F9D), listOf("library", "knihovna")),
+        Kind("cat-post", Icons.Filled.LocalPostOffice, c(0xA1783B), listOf("post office", "posta")),
+        Kind("cat-police", Icons.Filled.LocalPolice, c(0x566C9A), listOf("police", "policie")),
         Kind("cat-coffee", Icons.Filled.LocalCafe, c(0xE8710A), listOf("coffee", "cafe", "café", "bakery", "tea", "donut")),
         Kind("cat-food", Icons.Filled.Restaurant, c(0xE8453C), listOf("restaurant", "food", "pizza", "sushi", "burger", "grill", "bar", "pub", "diner", "taco", "bistro", "steak", "ramen", "noodle", "kitchen", "eatery", "sandwich", "chicken")),
         Kind("cat-gas", Icons.Filled.LocalGasStation, c(0x1A73E8), listOf("gas", "fuel", "petrol", "charging")),
@@ -30,11 +52,12 @@ object MapIcons {
         Kind("cat-health", Icons.Filled.MedicalServices, c(0xC5221F), listOf("hospital", "clinic", "doctor", "dentist", "medical", "urgent")),
         Kind("cat-transit", Icons.Filled.Tram, c(0x12B5A5), listOf("station", "bus", "subway", "metro", "train", "airport")),
         Kind("cat-money", Icons.Filled.Payments, c(0x5F6368), listOf("atm", "bank")),
-        Kind("cat-parking", Icons.Filled.LocalParking, c(0x1A73E8), listOf("parking", "garage")),
     )
 
     fun iconName(p: Place): String {
-        val cat = (p.category ?: "").lowercase()
+        val cat = Place.fold(p.category.orEmpty()).replace('_', ' ')
+        if (("parking" in cat || "parkoviste" in cat) && ("bicycle" in cat || "bike" in cat || "kol" in cat))
+            return "cat-bike"
         return kinds.firstOrNull { k -> k.words.any { cat.contains(it) } }?.name ?: "cat-default"
     }
 
@@ -44,9 +67,14 @@ object MapIcons {
             listOf("school", "college", "university", "nursery").any(category::contains) -> "poi-edu"
             listOf("museum", "theatre", "theater", "art gallery").any(category::contains) -> "poi-culture"
             listOf("stadium", "sports", "gym").any(category::contains) -> "poi-sport"
-            listOf("library", "town hall", "post office").any(category::contains) -> "poi-civic"
+            "town hall" in category -> "poi-civic"
             else -> "poi-" + iconName(place).removePrefix("cat-")
         }
+    }
+
+    fun categoryTint(place: Place): String {
+        val color = kinds.firstOrNull { it.name == iconName(place) }?.color ?: c(0x75849B)
+        return String.format(java.util.Locale.ROOT, "#%06X", color and 0xFFFFFF)
     }
 
     fun searchName(place: Place): String {
@@ -79,6 +107,18 @@ object MapIcons {
     private val plates = mutableMapOf<MarkerTheme, Bitmap>()
     private fun drawThemePlate(canvas: Canvas, icon: ImageVector, tint: Int, size: Float): Boolean {
         val theme = AppSettings.markerTheme
+        if (theme.assetPack != null) {
+            val center = size / 2f
+            val radius = size * 0.43f
+            val shape = RectF(center - radius, center - radius, center + radius, center + radius)
+            val rounding = if (theme == MarkerTheme.LUCIDE) size * 0.27f else radius
+            canvas.drawRoundRect(shape, rounding, rounding, paint(tint))
+            canvas.drawRoundRect(shape, rounding, rounding, paint(Color.WHITE, Paint.Style.STROKE, size * 0.057f))
+            val halfGlyph = size * if (theme == MarkerTheme.LUCIDE) 0.29f else 0.33f
+            val area = RectF(center - halfGlyph, center - halfGlyph, center + halfGlyph, center + halfGlyph)
+            if (!MapGlyphs.draw(theme, canvas, icon.name, area, Color.WHITE)) drawIcon(canvas, icon, area, Color.WHITE)
+            return true
+        }
         val resource = theme.resource ?: return false
         val plate = plates.getOrPut(theme) { BitmapFactory.decodeResource(KiteApp.app.resources, resource) }
         val pad = size * 0.045f
@@ -92,14 +132,31 @@ object MapIcons {
 
     private fun placeBadge(icon: ImageVector, tint: Int, search: Boolean) = image(44f, 44f) { cv ->
         if (drawThemePlate(cv, icon, tint, 44f)) return@image
-        val shape = if (search) RectF(3f, 3f, 41f, 41f) else RectF(4f, 4f, 40f, 40f)
-        val corner = if (search) 19f else 10f
+        if (search) {
+            val marker = Path().apply {
+                moveTo(22f, 42f)
+                cubicTo(19.2f, 38.1f, 17.5f, 35.5f, 13.9f, 34f)
+                arcTo(RectF(3.2f, 2f, 40.8f, 37f), 115f, 310f, false)
+                cubicTo(26.5f, 35.5f, 24.8f, 38.1f, 22f, 42f)
+                close()
+            }
+            cv.save()
+            cv.translate(0f, 1.1f)
+            cv.drawPath(marker, paint(c(0x101827, 0.62f), Paint.Style.STROKE, 2.7f))
+            cv.restore()
+            cv.drawPath(marker, paint(tint))
+            cv.drawPath(marker, paint(Color.WHITE, Paint.Style.STROKE, 2.0f))
+            drawIcon(cv, icon, RectF(12f, 9.5f, 32f, 29.5f), Color.WHITE)
+            return@image
+        }
+        val shape = RectF(4f, 4f, 40f, 40f)
+        val corner = 10f
         cv.drawRoundRect(RectF(shape.left, shape.top + 1.6f, shape.right, shape.bottom + 1.6f), corner, corner, paint(c(0x0B1828, 0.38f)))
         val body = paint(tint).apply {
             shader = LinearGradient(0f, 4f, 0f, 40f, intArrayOf(tint, c(0x111C34)), null, Shader.TileMode.CLAMP)
         }
         cv.drawRoundRect(shape, corner, corner, body)
-        cv.drawRoundRect(shape, corner, corner, paint(c(0xFFFFFF, if (search) 0.95f else 0.85f), Paint.Style.STROKE, if (search) 2.8f else 2f))
+        cv.drawRoundRect(shape, corner, corner, paint(c(0xFFFFFF, 0.85f), Paint.Style.STROKE, 2f))
         drawIcon(cv, icon, RectF(11f, 11f, 33f, 33f), Color.WHITE)
     }
 
@@ -121,7 +178,7 @@ object MapIcons {
     }
 
     /** Draws a Material icon (24-unit art) filling [r]. */
-    fun drawIcon(cv: Canvas, icon: ImageVector, r: RectF, color: Int) {
+    private fun drawIcon(cv: Canvas, icon: ImageVector, r: RectF, color: Int) {
         val p = paint(color)
         cv.save()
         cv.translate(r.left, r.top)
@@ -151,19 +208,17 @@ object MapIcons {
             fun add(id: String, bitmap: Bitmap) { put(id, bitmap) }
             for (k in kinds) {
                 add(k.name, dot(k.icon, k.color))
-                add("search-${k.name}", placeBadge(k.icon, c(0x2679D8), search = true))
+                add("search-${k.name}", placeBadge(k.icon, k.color, search = true))
             }
             add("search-cat-default", placeBadge(Icons.Filled.Place, c(0x2679D8), search = true))
             for ((key, glyph) in osmIcons) {
                 val (icon, tint) = glyph
                 add("open-$key", placeBadge(icon, c(tint.toLong()), search = false))
-                add("search-open-$key", placeBadge(icon, c(0x2679D8), search = true))
+                add("search-open-$key", placeBadge(icon, c(tint.toLong()), search = true))
             }
             add("cat-default", dot(Icons.Filled.Place, c(0xE8453C)))
             add("pin-selected", selectedPin())
             add("pin-origin", originDot())
-            add("bubble-sel", routeTimeTag(c(0x0C646B), c(0x083F4B)))
-            add("bubble-alt", routeTimeTag(c(0xF7FAFC), c(0xA4B5BE)))
             add("road-pill", bubble(c(0x2DD4BF), c(0x0F766E)))
             add("cam-speed", speedCamera())
             add("cam-plate", plateCamera())
@@ -182,7 +237,7 @@ object MapIcons {
             add("livecam-road", dot(Icons.Filled.Videocam, c(0x0284C7)))
             add("livecam-web", dot(Icons.Filled.Landscape, c(0x7C3AED)))
             for (k in WazeAlert.Kind.entries) add("waze-${k.key}", waze(k))
-            add("turn-head", turnHead())
+            for (style in RouteArrowStyle.entries) add(style.sprite, turnHead(style))
             add("route-chevron", routeChevron())
             add("pin-stop", dot(Icons.Filled.RadioButtonChecked, c(0x5F6368)))
             add("mine-home", dot(Icons.Filled.Home, c(0x1A73E8)))
@@ -197,18 +252,38 @@ object MapIcons {
 
     fun registerImages(dark: Boolean, add: (String, Bitmap) -> Unit) {
         overlayImages().forEach { (id, asset) -> add(id, asset) }
-        for (marker in DriveMarker.entries) add(marker.sprite, drivePuck(marker, dark))
+        for (marker in DriveMarker.entries) {
+            val bitmap = drivePuck(marker, dark)
+            add(marker.sprite, bitmap)
+            add(marker.mapSprite, image(52f, 52f) { canvas ->
+                canvas.drawBitmap(bitmap, null, RectF(0f, 0f, 52f, 52f), Paint(Paint.FILTER_BITMAP_FLAG))
+            })
+        }
+        add("heading-cone", image(54f, 54f) { canvas ->
+            val cone = Path().apply {
+                moveTo(27f, 27f)
+                arcTo(RectF(3f, 3f, 51f, 51f), -121f, 62f, false)
+                close()
+            }
+            canvas.drawPath(cone, paint(c(0x16A8DE, 0.26f)))
+        })
     }
 
     /** The head of the turn arrow drawn on the road: big and white with a teal edge, pointing up. */
-    fun turnHead() = image(64f, 60f) { cv ->
-        val p = Path().apply { moveTo(32f, 7f); lineTo(57f, 46f); lineTo(7f, 46f); close() }
-        // A soft shadow drawn by hand (a paint's own shadow comes out wrong on some phones' maps).
-        cv.save(); cv.translate(0f, 2f)
-        cv.drawPath(p, paint(c(0x000000, 0.18f), Paint.Style.STROKE, 14f))
-        cv.restore()
-        cv.drawPath(p, paint(c(0x0F766E), Paint.Style.STROKE, 8f))
-        cv.drawPath(p, paint(Color.WHITE))
+    fun turnHead(style: RouteArrowStyle = RouteArrowStyle.OUTLINED) = image(64f, 60f) { cv ->
+        val p = Path().apply {
+            when (style) {
+                RouteArrowStyle.OUTLINED -> { moveTo(32f, 8f); lineTo(55f, 45f); lineTo(9f, 45f); close() }
+                RouteArrowStyle.SOLID -> { moveTo(32f, 7f); lineTo(56f, 47f); lineTo(32f, 35f); lineTo(8f, 47f); close() }
+                RouteArrowStyle.OPEN -> { moveTo(11f, 40f); lineTo(32f, 15f); lineTo(53f, 40f) }
+            }
+        }
+        val outline = paint(Color.parseColor(style.edge), Paint.Style.STROKE, if (style == RouteArrowStyle.OPEN) 14f else 8f)
+            .apply { strokeJoin = Paint.Join.ROUND; strokeCap = Paint.Cap.ROUND }
+        cv.drawPath(p, outline)
+        val ink = Color.parseColor(style.fill)
+        cv.drawPath(p, if (style == RouteArrowStyle.OPEN) paint(ink, Paint.Style.STROKE, 8f)
+            .apply { strokeJoin = Paint.Join.ROUND; strokeCap = Paint.Cap.ROUND } else paint(ink))
     }
 
     fun speedCamera() = badge(c(0xEF6C00)) { cv, amber ->
@@ -278,20 +353,8 @@ object MapIcons {
         registerMapPlaces(satellite) { id, bitmap -> style.addImage(id, bitmap) }
 
     fun registerMapPlaces(satellite: Boolean, register: (String, Bitmap) -> Unit) {
-        val backing = if (satellite) Color.WHITE else c(0x9AA0A6)
         fun add(category: String, icon: ImageVector, categoryColor: Int) {
-            val marker = image(29f, 29f) { cv ->
-                if (drawThemePlate(cv, icon, categoryColor, 29f)) return@image
-                val body = paint(backing)
-                val tail = Path().apply {
-                    moveTo(7f, 19f); lineTo(14.5f, 28f); lineTo(22f, 19f); close()
-                }
-                cv.drawPath(tail, body)
-                cv.drawCircle(14.5f, 14.5f, 11f, body)
-                cv.drawCircle(14.5f, 14.5f, 9f, paint(categoryColor))
-                drawIcon(cv, icon, RectF(9f, 9f, 20f, 20f), Color.WHITE)
-            }
-            register("poi-$category", marker)
+            register("poi-$category", ambientBadge(icon, categoryColor, satellite))
         }
         for (k in kinds) {
             val category = k.name.removePrefix("cat-")
@@ -310,6 +373,32 @@ object MapIcons {
         add("culture", Icons.Filled.Museum, c(0x9334E6))
         add("sport", Icons.Filled.SportsSoccer, c(0xE37400))
         add("default", Icons.Filled.Place, c(0x5F6368))
+    }
+
+    private fun ambientBadge(icon: ImageVector, categoryColor: Int, satellite: Boolean = false) = image(29f, 29f) { cv ->
+        val backing = if (satellite) Color.WHITE else c(0x9AA0A6)
+        if (drawThemePlate(cv, icon, categoryColor, 29f)) return@image
+        val body = paint(backing)
+        val tail = Path().apply {
+            moveTo(7f, 19f); lineTo(14.5f, 28f); lineTo(22f, 19f); close()
+        }
+        cv.drawPath(tail, body)
+        cv.drawCircle(14.5f, 14.5f, 11f, body)
+        cv.drawCircle(14.5f, 14.5f, 9f, paint(categoryColor))
+        drawIcon(cv, icon, RectF(9f, 9f, 20f, 20f), Color.WHITE)
+    }
+
+    enum class Sample { GOOGLE, OSM, SEARCH, WAZE }
+
+    fun sample(type: Sample): Bitmap = when (type) {
+        Sample.GOOGLE -> ambientBadge(Icons.Filled.LocalCafe, c(0xE8710A))
+        Sample.OSM -> placeBadge(Icons.Filled.WaterDrop, c(0x227FA8), search = false)
+        Sample.SEARCH -> placeBadge(Icons.Filled.LocalGasStation, c(0x2679D8), search = true)
+        Sample.WAZE -> waze(WazeAlert.Kind.POLICE)
+    }
+
+    fun stripBadge(icon: ImageVector, tint: Int) = image(32f, 32f) {
+        if (!drawThemePlate(it, icon, tint, 32f)) drawIcon(it, icon, RectF(0f, 0f, 32f, 32f), tint)
     }
 
     private fun selectedPin() = image(34f, 46f) { cv ->
@@ -362,10 +451,35 @@ object MapIcons {
         cv.drawPath(p, paint(c(0x0B3B36), Paint.Style.STROKE, 3f))
     }
 
-    private fun routeTimeTag(fill: Int, stroke: Int) = image(28f, 24f) { cv ->
-        val bounds = RectF(1f, 1f, 27f, 23f)
-        cv.drawRoundRect(bounds, 4f, 4f, paint(fill))
-        cv.drawRoundRect(bounds, 4f, 4f, paint(stroke, Paint.Style.STROKE, 1.4f))
+    data class BadgeColors(val surface: Int, val text: Int, val accent: Int, val onAccent: Int) {
+        companion object {
+            val FALLBACK = BadgeColors(0xFFFAFCFD.toInt(), 0xFF1E2A35.toInt(), 0xFF0C646B.toInt(), Color.WHITE)
+        }
+    }
+
+    fun badgeWidth(label: String): Float = badgeText(Color.WHITE, false).measureText(label) + 24f
+
+    private fun badgeText(color: Int, numbered: Boolean) = paint(color).apply {
+        typeface = Typeface.create("sans-serif-rounded", Typeface.BOLD)
+        textAlign = Paint.Align.CENTER
+        textSize = if (numbered) 15f else 17f
+    }
+
+    /** The label and its filled card are a single symbol, so the entire card participates in collision detection. */
+    fun mapBadge(label: String, selected: Boolean, colors: BadgeColors, numbered: Boolean): Bitmap {
+        val fg = if (selected) colors.onAccent else colors.text
+        val bg = if (selected) colors.accent else colors.surface
+        val text = badgeText(fg, numbered)
+        val w = if (numbered) 34f else text.measureText(label) + 24f
+        val h = if (numbered) 33f else 36f
+        return image(w, h) { cv ->
+            val rect = RectF(2f, 1.5f, w - 2f, h - 4f)
+            cv.drawRoundRect(RectF(2f, 3f, w - 2f, h - 1f), 12f, 12f, paint(0x350D1822))
+            cv.drawRoundRect(rect, 12f, 12f, paint(bg))
+            cv.drawRoundRect(rect, 12f, 12f, paint(if (selected) colors.onAccent else colors.accent,
+                Paint.Style.STROKE, if (selected) 1.2f else 1.55f))
+            cv.drawText(label, w / 2f, rect.centerY() - (text.ascent() + text.descent()) / 2f, text)
+        }
     }
 
     private fun bubble(fill: Int, stroke: Int) = image(30f, 26f) { cv ->
@@ -379,3 +493,5 @@ object MapIcons {
 
     @Suppress("unused") private val keep = PropertyFactory::class
 }
+
+internal val DriveMarker.mapSprite: String get() = "$sprite-map"

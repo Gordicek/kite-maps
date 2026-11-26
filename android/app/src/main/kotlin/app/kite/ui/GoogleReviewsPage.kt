@@ -17,14 +17,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.kite.core.GooglePlaceMedia
 import app.kite.core.Place
-import app.kite.core.PlaceReview
+import app.kite.core.PublicPlaceReviews
 import kotlinx.coroutines.delay
 import app.kite.primaryText
 
 /** Google Maps' public reviews tab as an in-app fallback when the native feed is empty. */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-internal fun GoogleReviewsPage(place: Place, onReviews: (List<PlaceReview>) -> Unit, close: () -> Unit) {
+internal fun GoogleReviewsPage(place: Place, onReviews: (PublicPlaceReviews) -> Unit, close: () -> Unit) {
     val ctx = LocalContext.current
     val cid = place.featureId?.let(GooglePlaceMedia::cid)
     val url = cid?.let { "https://www.google.com/maps?cid=$it&hl=en" } ?: place.shareUrl
@@ -35,13 +35,13 @@ internal fun GoogleReviewsPage(place: Place, onReviews: (List<PlaceReview>) -> U
     LaunchedEffect(browser, loading, error) {
         val view = browser ?: return@LaunchedEffect
         if (loading || error) return@LaunchedEffect
-        repeat(15) {
-            delay(700)
-            if (view.url?.startsWith("https://www.google.com/maps") != true) return@repeat
+        while (true) {
+            delay(1000)
+            if (view.url?.startsWith("https://www.google.com/maps") != true) continue
             view.evaluateJavascript(COLLECT_REVIEWS) { reply ->
                 if (browser !== view || view.url?.startsWith("https://www.google.com/maps") != true) return@evaluateJavascript
-                val reviews = GooglePlaceMedia.publicPageReviews(reply.orEmpty())
-                if (reviews.isNotEmpty()) publish(reviews)
+                val page = GooglePlaceMedia.publicReviewDetails(reply.orEmpty())
+                if (page.reviews.isNotEmpty() || page.histogram.isNotEmpty()) publish(page)
             }
         }
     }
@@ -110,7 +110,7 @@ private const val SELECT_REVIEWS = """(() => {
 
 private const val COLLECT_REVIEWS = """(() => {
     const text = (card, selector) => card.querySelector(selector)?.textContent?.trim() || null;
-    return Array.from(document.querySelectorAll('.jJc9Ad')).slice(0, 24).flatMap(card => {
+    const reviews = Array.from(document.querySelectorAll('.jJc9Ad')).slice(0, 100).flatMap(card => {
         if (!card.matches('[data-review-id]') && !card.querySelector('[data-review-id]')) return [];
         const author = text(card, '.d4r55,.Vpc5Fe,.TSUbDb');
         if (!author) return [];
@@ -122,7 +122,20 @@ private const val COLLECT_REVIEWS = """(() => {
             if (el instanceof HTMLImageElement && (el.currentSrc || el.src)) urls.push(el.currentSrc || el.src);
             return urls;
         });
-        return [{author, rating: stars ? Number(stars[1]) : null,
+        const avatar = card.querySelector('img[src*="/a/"], img[src*="/a-"], img[src*="/a0-"]')?.src || null;
+        const likeButton = [...card.querySelectorAll('button[aria-label]')].find(button =>
+            /^(like|helpful|líbí)/i.test(button.getAttribute('aria-label') || ''));
+        const likeText = likeButton?.querySelector('.pkWtMe')?.textContent?.trim() || likeButton?.textContent?.trim() || '';
+        const likes = /^\d+$/.test(likeText) ? Number(likeText) : null;
+        return [{author, id: card.getAttribute('data-review-id') || card.querySelector('[data-review-id]')?.getAttribute('data-review-id'),
+            avatar, likes, rating: stars ? Number(stars[1]) : null,
             text: text(card, '.wiI7pd'), time: text(card, '.rsqaWe'), photos: [...new Set(photos)].slice(0, 16)}];
     });
+    const stars = new Map();
+    for (const element of document.querySelectorAll('tr[aria-label]')) {
+        const match = element.getAttribute('aria-label')?.match(/^\s*([1-5])\s+stars?[,\s]+([\d,\s]+)\s+reviews?\b/i);
+        if (match) stars.set(Number(match[1]), Number(match[2].replace(/[^\d]/g, '')));
+    }
+    const histogram = [1,2,3,4,5].map(score => stars.get(score) ?? null);
+    return {reviews, histogram: histogram.every(count => count !== null) ? histogram : []};
 })();"""

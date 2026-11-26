@@ -4,6 +4,26 @@ import kotlin.test.*
 
 /** Steps the open router leaves out or says twice, filled in and tidied (StepFill.kt; the iPhone's StepFillTests). */
 class StepFillTests {
+    @Test fun parallelAlternativesCanHaveTheSameLengthAndDifferentRoads() {
+        val west = LatLng(49.5900, 17.25)
+        val east = LatLng(49.5900, 17.26)
+        val north = listOf(west, LatLng(49.5910, 17.255), east)
+        val south = listOf(west, LatLng(49.5890, 17.255), east)
+        assertFalse(Directions.sameRoads(north, south))
+        assertTrue(Directions.sameRoads(north, north))
+    }
+
+    @Test fun nearbyBranchCannotDonateItsStraightManeuverToATurn() {
+        val junction = LatLng(49.59, 17.26)
+        val approach = LatLng(49.5895, 17.26)
+        val straight = listOf(approach, junction, LatLng(49.5903, 17.26))
+        val turn = listOf(approach, junction, LatLng(49.59, 17.2605))
+        val a = Geo.cumulative(straight)
+        val b = Geo.cumulative(turn)
+        assertFalse(StepMerge.sameJunction(straight, a, a[1], turn, b, b[1]))
+        assertTrue(StepMerge.sameJunction(turn, b, b[1], turn, b, b[1]))
+    }
+
     /** A straight line about 5.5 km due north, so every step sits on it. */
     private val line = listOf(LatLng(50.0, -1.0), LatLng(50.05, -1.0))
 

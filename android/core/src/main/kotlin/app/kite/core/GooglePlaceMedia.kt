@@ -2,7 +2,12 @@ package app.kite.core
 
 import java.net.URI
 
-data class PlaceReview(val author: String, val stars: Int?, val relativeTime: String?, val text: String?, val photos: List<String>)
+data class PlaceReview(
+    val author: String, val stars: Int?, val relativeTime: String?, val text: String?, val photos: List<String>,
+    val avatar: String? = null, val likes: Int? = null, val publishedMs: Long? = null, val id: String? = null,
+)
+data class PlaceReviewPage(val reviews: List<PlaceReview>, val nextToken: String? = null)
+data class PublicPlaceReviews(val reviews: List<PlaceReview>, val histogram: List<Int> = emptyList())
 
 /** Place detail response shapes from Vela Maps' Google client (GPL-3.0). */
 object GooglePlaceMedia {
@@ -28,12 +33,14 @@ object GooglePlaceMedia {
     fun reviews(root: Any?): List<PlaceReview> = arr(at(root, 2)).orEmpty().mapNotNull { row ->
         val author = gstr(at(row, 0, 1))?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
         PlaceReview(author, gint(at(row, 4))?.takeIf { it in 1..5 }, gstr(at(row, 1)),
-            gstr(at(row, 3))?.takeIf { it.isNotBlank() }, imageUrls(row, limit = 8))
+            gstr(at(row, 3))?.takeIf { it.isNotBlank() }, imageUrls(row, limit = 8),
+            avatar = profilePhoto(gstr(at(row, 0, 2))))
     }
 
-    fun reviewFeedRequest(featureId: String): String? {
+    fun reviewFeedRequest(featureId: String, token: String = ""): String? {
         if (!featureIdPattern.matches(featureId)) return null
-        val inner = """[[["$featureId"],null,null,null,null,[null,null,null,[[1],[3]]]],[10,""],null,null,[null,null,null,null,null,null,81],null,null,[null,1,1,null,1,null,1,null,null,null,null,[1,1,null,[[1]]]],null,null,[3,1,null,null,null,[2]],null,[1]]"""
+        if (token.length > 2000 || token.any { !it.isLetterOrDigit() && it !in "-_=" }) return null
+        val inner = """[[["$featureId"],null,null,null,null,[null,null,null,[[1],[3]]]],[10,"$token"],null,null,[null,null,null,null,null,null,81],null,null,[null,1,1,null,1,null,1,null,null,null,null,[1,1,null,[[1]]]],null,null,[3,1,null,null,null,[2]],null,[1]]"""
         return Json.write(listOf(listOf(listOf("qv9Egd", inner, null, "generic"))))
     }
 
@@ -43,24 +50,61 @@ object GooglePlaceMedia {
             .firstOrNull { at(it, 0) == "wrb.fr" && at(it, 1) == rpc }
             ?.let { (at(it, 2) as? String)?.let(Json::parse) }
 
-    fun reviewFeed(body: String): List<PlaceReview> = arr(at(batchPayload(body, "qv9Egd"), 2)).orEmpty().mapNotNull { entry ->
-        val review = at(entry, 0)
-        val author = gstr(at(review, 1, 4, 5, 0)) ?: return@mapNotNull null
-        PlaceReview(author, gint(at(review, 2, 0, 0))?.takeIf { it in 1..5 }, gstr(at(review, 1, 6)),
-            gstr(at(review, 2, 15, 0, 0))?.takeIf { it.isNotBlank() }, imageUrls(at(review, 2, 2), limit = 8))
+    fun reviewFeed(body: String): List<PlaceReview> = reviewPage(body).reviews
+
+    fun reviewPage(body: String): PlaceReviewPage {
+        val payload = batchPayload(body, "qv9Egd")
+        val next = gstr(at(payload, 1))?.takeIf { it.isNotBlank() && at(payload, 5) != true }
+        val reviews = arr(at(payload, 2)).orEmpty().mapNotNull { entry ->
+            val review = at(entry, 0)
+            val author = gstr(at(review, 1, 4, 5, 0)) ?: return@mapNotNull null
+            val epoch = at(review, 1, 2).long()?.takeIf { it in 946_684_800_000_000L..4_133_980_800_000_000L }
+            PlaceReview(author, gint(at(review, 2, 0, 0))?.takeIf { it in 1..5 }, gstr(at(review, 1, 6)),
+                gstr(at(review, 2, 15, 0, 0))?.takeIf { it.isNotBlank() }, imageUrls(at(review, 2, 2), limit = 8),
+                avatar = profilePhoto(gstr(at(review, 1, 4, 5, 1))), publishedMs = epoch?.div(1000),
+                id = gstr(at(review, 0)))
+        }
+        return PlaceReviewPage(reviews, next)
     }
 
-    fun publicPageReviews(value: String): List<PlaceReview> {
-        val pages = Json.parse(value).asMaps().orEmpty()
-        return pages.take(24).mapNotNull { item ->
+    fun publicPageReviews(value: String): List<PlaceReview> = publicReviewDetails(value).reviews
+
+    fun publicReviewDetails(value: String): PublicPlaceReviews {
+        val decoded = Json.parse(value).let { if (it is String) Json.parse(it) else it }
+        val objectValue = decoded.asMap()
+        val rows = (objectValue?.get("reviews") ?: decoded).asMaps().orEmpty()
+        val histogram = objectValue?.get("histogram").asList().orEmpty().mapNotNull { it.int()?.takeIf { n -> n >= 0 } }
+            .takeIf { it.size == 5 && it.sumOf(Int::toLong) > 0 }.orEmpty()
+        val reviews = rows.take(100).mapNotNull { item ->
             val author = item["author"].text()?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
             val stars = item["rating"].int()?.takeIf { it in 1..5 }
             val text = item["text"].text()?.trim()?.takeIf(String::isNotEmpty)
             val date = item["time"].text()?.trim()?.takeIf(String::isNotEmpty)
             val photos = imageUrls(item["photos"], limit = 8)
             if (stars == null && text == null && photos.isEmpty()) return@mapNotNull null
-            PlaceReview(author, stars, date, text, photos)
-        }.distinct()
+            PlaceReview(author, stars, date, text, photos, profilePhoto(item["avatar"].text()),
+                item["likes"].int()?.takeIf { it >= 0 }, id = item["id"].text())
+        }
+        return PublicPlaceReviews(reviews.distinct(), histogram)
+    }
+
+    fun popularTimes(node: Any?): List<BusyDay> = arr(at(node, 0)).orEmpty().mapNotNull { row ->
+        val day = gint(at(row, 0))?.takeIf { it in 1..7 } ?: return@mapNotNull null
+        val hours = arr(at(row, 1)).orEmpty().mapNotNull hourOfDay@ { cell ->
+            val hour = gint(at(cell, 0))?.takeIf { it in 0..23 } ?: return@hourOfDay null
+            val percent = gint(at(cell, 1))?.takeIf { it in 0..100 } ?: return@hourOfDay null
+            BusyHour(hour, percent)
+        }.distinctBy { it.hour }.sortedBy { it.hour }
+        if (hours.isEmpty()) null else BusyDay(day, hours)
+    }.distinctBy { it.dayOfWeek }.sortedBy { it.dayOfWeek }
+
+    private fun profilePhoto(value: String?): String? {
+        val url = value?.let { if (it.startsWith("//")) "https:$it" else it } ?: return null
+        val uri = runCatching { URI(url) }.getOrNull() ?: return null
+        val host = uri.host ?: return null
+        return url.takeIf { uri.scheme == "https" && uri.userInfo == null &&
+            (host.endsWith(".googleusercontent.com") || host.endsWith(".ggpht.com")) &&
+            uri.path.orEmpty().startsWith("/a") }
     }
 
     fun photos(body: String): List<String> = imageUrls(at(batchPayload(body, "hspqX"), 0), limit = 40)

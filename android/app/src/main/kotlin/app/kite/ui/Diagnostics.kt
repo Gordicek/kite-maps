@@ -52,7 +52,7 @@ fun DiagnosticsSettings(model: AppModel) {
         "to send with a bug report. Nothing is sent until you share it. The map picture can show where you are, so leave it off unless it helps.") {
         ToggleRow("Include a picture of the map", null, 0L, includeMap) { includeMap = it }
         HorizontalDivider()
-        Text(if (running) "Testing…" else "Run tests", fontSize = KType.body, color = if (running) secondaryText else Vela.accentText(dark),
+        Text(if (running) "Testing…" else "Run tests", fontSize = KType.body, color = if (running) secondaryText else interfaceAccentText,
             modifier = Modifier.fillMaxWidth().tap {
                 if (running) return@tap
                 running = true; report = null; status = "Testing…"
@@ -68,8 +68,8 @@ fun DiagnosticsSettings(model: AppModel) {
             HorizontalDivider()
             Row(Modifier.fillMaxWidth().tap { shareFile(ctx, file) }.padding(horizontal = 14.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(Icons.Filled.Share, null, tint = Vela.accentText(dark), modifier = Modifier.size(20.dp))
-                Text("Share diagnostics", fontSize = KType.body, color = Vela.accentText(dark))
+                Icon(Icons.Filled.Share, null, tint = interfaceAccentText, modifier = Modifier.size(20.dp))
+                Text(localizeLabel("Share diagnostics"), fontSize = KType.body, color = interfaceAccentText)
             }
         }
     }

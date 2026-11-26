@@ -1,5 +1,9 @@
 package app.kite.ui
 
+import app.kite.localizeLabel
+import androidx.compose.ui.res.stringResource
+import app.kite.R
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -39,17 +43,17 @@ fun NearbyDepartures(model: AppModel, close: () -> Unit) {
         selected = stops?.firstOrNull()
     }
 
-    TripSheet("Nearby departures", "Done", close) {
+    TripSheet(stringResource(R.string.nearby_departures), "Done", close) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             when {
-                initial == null -> Text("Waiting for your location.", color = secondaryText)
+                initial == null -> Text(localizeLabel("Waiting for your location."), color = secondaryText)
                 stops == null -> CircularProgressIndicator(Modifier.size(24.dp))
                 failed -> {
-                    Text("Couldn't load nearby stops.", color = secondaryText)
-                    TextButton({ reload++ }) { Text("Retry") }
+                    Text(localizeLabel("Couldn't load nearby stops."), color = secondaryText)
+                    TextButton({ reload++ }) { Text(localizeLabel("Retry")) }
                 }
-                stops.isNullOrEmpty() -> Text("No stops within walking distance.", color = secondaryText)
+                stops.isNullOrEmpty() -> Text(localizeLabel("No stops within walking distance."), color = secondaryText)
                 else -> {
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         stops.orEmpty().forEach { stop ->
@@ -63,9 +67,40 @@ fun NearbyDepartures(model: AppModel, close: () -> Unit) {
                             Text(stop.name, Modifier.weight(1f), color = primaryText)
                             IconButton({ close(); model.select(place) }) { Icon(Icons.Filled.Map, "Show stop on map") }
                         }
-                        DepartureBoard(place)
+                        DepartureBoard(place) { close(); model.previewDeparture(it) }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun DeparturePreview(model: AppModel, trip: app.kite.core.TransitTrip, showMapbox: Boolean) {
+    val ride = trip.rides.firstOrNull() ?: return
+    val live = model.transitLive[ride.tripId]
+    androidx.activity.compose.BackHandler { model.closeDeparturePreview() }
+    Box(Modifier.fillMaxSize().systemBarsPadding()) {
+        if (showMapbox) MapboxAttribution(Modifier.align(Alignment.TopEnd).padding(10.dp))
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp)
+            .background(app.kite.interfaceSheet, androidx.compose.foundation.shape.RoundedCornerShape(24.dp)).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                LineChip(ride)
+                Text(ride.headsign ?: ride.toName, Modifier.weight(1f), color = primaryText)
+                TextButton({ model.closeDeparturePreview() }) { Text(localizeLabel("Done")) }
+            }
+            Text(when {
+                live?.cancelled == true -> "This service is cancelled"
+                live?.position != null && live.gps -> "Live vehicle position"
+                live?.position != null -> "Estimated from live times"
+                model.departureEstimate != null -> "Estimated from the timetable"
+                else -> "Scheduled route"
+            }, color = secondaryText)
+            ride.calls.firstOrNull()?.let { first ->
+                val from = first.name
+                val to = ride.calls.last().name
+                Text("$from → $to", color = primaryText)
             }
         }
     }

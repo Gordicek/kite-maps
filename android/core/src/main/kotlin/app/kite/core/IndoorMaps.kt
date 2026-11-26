@@ -18,7 +18,10 @@ object IndoorMaps {
                     val buildingName: String? = null, val buildings: List<Pair<String?, List<LatLng>>> = emptyList()) {
         val floors = features.flatMap { it.floors }.distinct().sortedByDescending { it.toDoubleOrNull() }
 
-        fun covers(at: LatLng): Boolean = building?.let { contains(it, at) } ?: features.any { it.covers(at) || it.center.distanceTo(at) < 14 }
+        fun covers(at: LatLng): Boolean = building?.let { contains(it, at) } ?: features.any {
+            it.covers(at) || it.center.distanceTo(at) < 14 ||
+                it.kind == "corridor" && !it.polygon && it.geometry.size >= 2 && Geo.project(at, it.geometry).offset <= 8
+        }
 
         fun at(at: LatLng): Plan? {
             val footprint = buildings.filter { (_, ring) -> contains(ring, at) }
@@ -29,6 +32,59 @@ object IndoorMaps {
             if (nearby.none { it.kind in setOf("shop", "room", "area", "corridor", "toilets", "elevator", "stairs") }) return null
             return Plan(nearby, footprint?.second, footprint?.first)
         }
+    }
+
+    /** Walking guide over mapped links on a single floor. Room polygons require a mapped doorway. */
+    fun walkingGuide(plan: Plan, floor: String, from: LatLng, destination: Feature): List<LatLng>? {
+        if (floor !in destination.floors || !plan.covers(from)) return null
+        val onFloor = plan.features.filter { floor in it.floors }
+        val segments = onFloor.asSequence().filter { it.kind == "corridor" && !it.polygon }
+            .flatMap { it.geometry.zipWithNext().asSequence() }.filter { (a, b) -> a != b }.toList()
+        if (segments.isEmpty()) return null
+        data class Snap(val index: Int, val along: Double, val offset: Double, val point: LatLng)
+        fun snap(at: LatLng): Snap? = segments.mapIndexed { i, (a, b) ->
+            val edge = listOf(a, b)
+            val hit = Geo.project(at, edge)
+            Snap(i, hit.along, hit.offset, Geo.point(edge, hit.along))
+        }.minByOrNull { it.offset }
+        val origin = snap(from)?.takeIf { it.offset <= 8 } ?: return null
+        // An open floor plan sometimes has only the shop outline. Do not send people through a wall.
+        val targets = if (destination.polygon) onFloor.filter { door ->
+            door.kind == "door" && Geo.project(door.center, destination.geometry).offset <= 2
+        }.map { it.center } else listOf(destination.center)
+        val exits = targets.mapNotNull { snap(it)?.takeIf { p -> p.offset <= 5 } }
+        if (exits.isEmpty()) return null
+        val split = (exits + origin).groupBy { it.index }
+        val graph = mutableMapOf<LatLng, MutableList<LatLng>>()
+        for ((i, segment) in segments.withIndex()) {
+            val (a, b) = segment
+            val points = listOf(a) + split[i].orEmpty().sortedBy { it.along }.map { it.point } + b
+            for ((x, y) in points.zipWithNext()) if (x != y) {
+                graph.getOrPut(x) { mutableListOf() } += y
+                graph.getOrPut(y) { mutableListOf() } += x
+            }
+        }
+        val targetPoints = exits.map { it.point }.toSet()
+        val previous = mutableMapOf<LatLng, LatLng>()
+        val distance = mutableMapOf(origin.point to 0.0)
+        val queue = java.util.PriorityQueue<Pair<LatLng, Double>>(compareBy { it.second })
+        queue += origin.point to 0.0
+        while (queue.isNotEmpty()) {
+            val (point, cost) = queue.remove()
+            if (cost != distance[point]) continue
+            if (point in targetPoints) {
+                val path = generateSequence(point) { previous[it] }.toList().asReversed()
+                return path.takeIf { it.size >= 2 }
+            }
+            for (next in graph[point].orEmpty()) {
+                val nextCost = cost + point.distanceTo(next)
+                if (nextCost >= (distance[next] ?: Double.POSITIVE_INFINITY)) continue
+                distance[next] = nextCost
+                previous[next] = point
+                queue += next to nextCost
+            }
+        }
+        return null
     }
 
     private fun footprintArea(ring: List<LatLng>): Double {
@@ -57,6 +113,8 @@ object IndoorMaps {
               way["building"]($box);
               relation["building"]["type"="multipolygon"]($box);
               way["highway"="steps"]["level"]($box);
+              way["highway"="corridor"]["level"]($box);
+              way["highway"="footway"]["level"]["indoor"="yes"]($box);
               nwr["shop"]["level"]($box);
               nwr["amenity"~"^(toilets|restaurant|cafe|food_court|pharmacy)$"]["level"]($box);
               node["door"]["level"]($box);
@@ -143,7 +201,7 @@ object IndoorMaps {
             val tags = item["tags"].asMap().orEmpty()
             if (tags["access"] in listOf("private", "no")) return@flatMap emptyList()
             if (tags["indoor"] == null && tags["shop"] == null && tags["door"] == null && tags["entrance"] == null &&
-                tags["highway"] !in listOf("steps", "elevator") && tags["amenity"] !in supportedAmenities) return@flatMap emptyList()
+                tags["highway"] !in listOf("steps", "elevator", "corridor") && tags["amenity"] !in supportedAmenities) return@flatMap emptyList()
             val floors = (tags["level"] as? String).orEmpty().split(';').mapNotNull {
                 val value = it.trim().toDoubleOrNull()?.takeIf(Double::isFinite) ?: return@mapNotNull null
                 if (value % 1.0 == 0.0) value.toInt().toString() else value.toString()
@@ -155,6 +213,7 @@ object IndoorMaps {
                 tags["amenity"] == "toilets" -> "toilets"
                 tags["highway"] == "elevator" -> "elevator"
                 tags["highway"] == "steps" -> "stairs"
+                tags["highway"] == "corridor" || tags["highway"] == "footway" && tags["indoor"] == "yes" -> "corridor"
                 tags["entrance"] != null || tags["door"] != null -> "door"
                 tags["shop"] != null -> "shop"
                 else -> (tags["indoor"] as? String) ?: "room"

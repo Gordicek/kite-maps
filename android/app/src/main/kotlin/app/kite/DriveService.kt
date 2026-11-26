@@ -15,6 +15,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import app.kite.core.ManeuverType
 
 /**
  * Keeps Kite running with the screen off or another app on top while a drive is going, the way
@@ -26,8 +27,8 @@ class DriveService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val nm = getSystemService(NotificationManager::class.java)
         if (nm.getNotificationChannel(CHANNEL) == null) {
-            nm.createNotificationChannel(NotificationChannel(CHANNEL, "Driving", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Shown while Kite is guiding you"
+            nm.createNotificationChannel(NotificationChannel(CHANNEL, kt("Driving", "Navigace"), NotificationManager.IMPORTANCE_LOW).apply {
+                description = kt("Shown while Kite is guiding you", "Zobrazuje se při navigaci v Kite")
                 setShowBadge(false)
             })
         }
@@ -55,12 +56,38 @@ class DriveService : Service() {
         private var shownAt = 0L
         private var critical: String? = null
         private var tripPercent = 0
+        private var nextTurn: ManeuverType? = null
+        private var mapVisible = true
+        private var pipVisible = false
+
+        /** The ordinary foreground notification stays up while Android owns the location service. */
+        fun surface(visible: Boolean, pip: Boolean) {
+            if (mapVisible == visible && pipVisible == pip) return
+            mapVisible = visible
+            pipVisible = pip
+            if (running) publish(KiteApp.app)
+        }
+
+        private fun publish(c: Context) {
+            runCatching { c.getSystemService(NotificationManager::class.java).notify(1, build(c, title, text)) }
+        }
+
+        private fun turnIcon(type: ManeuverType?) = when (type) {
+            ManeuverType.TURN_LEFT, ManeuverType.SHARP_LEFT, ManeuverType.RAMP_LEFT -> R.drawable.ic_nav_left
+            ManeuverType.TURN_RIGHT, ManeuverType.SHARP_RIGHT, ManeuverType.RAMP_RIGHT -> R.drawable.ic_nav_right
+            ManeuverType.SLIGHT_LEFT, ManeuverType.KEEP_LEFT, ManeuverType.FORK_LEFT -> R.drawable.ic_nav_keep_left
+            ManeuverType.SLIGHT_RIGHT, ManeuverType.KEEP_RIGHT, ManeuverType.FORK_RIGHT -> R.drawable.ic_nav_keep_right
+            ManeuverType.ROUNDABOUT -> R.drawable.ic_nav_roundabout
+            ManeuverType.UTURN -> R.drawable.ic_nav_uturn
+            ManeuverType.DEPART, ManeuverType.ARRIVE, null -> R.drawable.ic_shortcut_car
+            else -> R.drawable.ic_nav_straight
+        }
 
         private fun build(c: Context, title: String, text: String): Notification {
             val open = PendingIntent.getActivity(c, 0, Intent(c, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             val standard = NotificationCompat.Builder(c, CHANNEL)
-                .setSmallIcon(R.drawable.ic_shortcut_car)
+                .setSmallIcon(if (critical != null && !mapVisible && !pipVisible) turnIcon(nextTurn) else R.drawable.ic_shortcut_car)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setContentIntent(open)
@@ -71,7 +98,7 @@ class DriveService : Service() {
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build()
             val summary = critical ?: return standard
-            if (Build.VERSION.SDK_INT < 36) return standard
+            if (Build.VERSION.SDK_INT < 36 || mapVisible || pipVisible) return standard
             return Notification.Builder.recoverBuilder(c, standard)
                 .setRequestPromotedOngoing(true)
                 .setShortCriticalText(summary)
@@ -83,22 +110,24 @@ class DriveService : Service() {
          * The next turn and the arrival time on the notification, so they're on the lock screen and
          * over another app. Quiet: it never sounds or buzzes, and changes at most every two seconds.
          */
-        fun show(c: Context, title: String, text: String, chip: String? = null, progress: Int = 0) {
-            if (!running || (title == this.title && text == this.text && chip == critical && progress == tripPercent)) return
+        fun show(c: Context, title: String, text: String, chip: String? = null, progress: Int = 0, maneuver: ManeuverType? = null) {
+            if (!running || (title == this.title && text == this.text && chip == critical && progress == tripPercent && nextTurn == maneuver)) return
             val now = android.os.SystemClock.elapsedRealtime()
-            if (title.substringAfter(" · ") == this.title.substringAfter(" · ") && now - shownAt < 2_000) return
+            if (nextTurn == maneuver && title.substringAfter(" · ") == this.title.substringAfter(" · ") && now - shownAt < 2_000) return
             this.title = title; this.text = text; shownAt = now
             critical = chip
+            nextTurn = maneuver
             tripPercent = progress.coerceIn(0, 100)
-            runCatching { c.getSystemService(NotificationManager::class.java).notify(1, build(c, title, text)) }
+            publish(c)
         }
 
-        fun start(c: Context, initialTitle: String = "Driving with Kite") {
+        fun start(c: Context, initialTitle: String = kt("Driving with Kite", "Navigace v Kite")) {
             // Without location access Android refuses a location service, and that refusal ends the app.
             if (ContextCompat.checkSelfPermission(c, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
                 ContextCompat.checkSelfPermission(c, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
-            title = initialTitle; text = "Tap to go back to the map"
+            title = initialTitle; text = kt("Tap to go back to the map", "Klepnutím se vrátíte na mapu")
             critical = null
+            nextTurn = null
             tripPercent = 0
             shownAt = 0L
             running = runCatching { c.startForegroundService(Intent(c, DriveService::class.java)) }.isSuccess

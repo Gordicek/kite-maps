@@ -80,7 +80,9 @@ object Overpass {
 
     enum class ControlKind { SIGNAL, STOP, RAIL, CROSSING }
     data class RoadControl(val kind: ControlKind, val along: Double, val at: LatLng? = null)
-    data class RoadsideNode(val kind: ControlKind, val at: LatLng, val direction: String? = null, val roads: List<List<LatLng>> = emptyList())
+    data class ControlWay(val line: List<LatLng>, val oneWay: Int)
+    data class RoadsideNode(val kind: ControlKind, val at: LatLng, val direction: String? = null,
+                            val roads: List<ControlWay> = emptyList())
 
     suspend fun controlsInBox(box: Box): List<RoadsideNode>? {
         val filter = "(${box.s.plain()},${box.w.plain()},${box.n.plain()},${box.e.plain()})"
@@ -119,25 +121,26 @@ object Overpass {
                 ControlKind.SIGNAL, ControlKind.STOP -> 4.0
                 ControlKind.RAIL, ControlKind.CROSSING -> 5.0
             }
-            if (hit.offset > radius) {
-                val onWay = hit.offset <= 12 && node.roads.any { road ->
-                    val distances = Geo.cumulative(road)
-                    val at = Geo.project(node.at, road, distances).along
-                    val probes = listOf(-1, 1).map { side ->
-                        listOf(10.0, 20.0).map { at + side * it }
-                    }
-                    probes.any { pair ->
-                        pair.all { it in 0.0..distances.last() } && pair.map {
-                            Geo.project(Geo.point(road, it, distances), line, cum)
-                        }.let { hits -> hits.all { it.offset <= 7.5 } && abs(hits[1].along - hits[0].along) > 5.0 }
-                    }
-                }
-                if (!onWay && !(fromRouter && hit.offset <= 15)) return@mapNotNull null
+            if (hit.offset > 15) return@mapNotNull null
+            val relative = when (node.direction?.lowercase()?.trim()) {
+                "forward" -> 1
+                "backward" -> -1
+                else -> 0
             }
-            RoadCamera.bearings(node.direction)?.let { directions ->
-                val heading = Geo.bearing(Geo.point(line, hit.along - 5, cum), Geo.point(line, hit.along + 5, cum))
-                if (directions.none { Geo.diff(it, heading) <= 65 }) return@mapNotNull null
-            }
+            val directional = node.kind == ControlKind.SIGNAL || node.kind == ControlKind.STOP
+            val approach = Geo.point(line, hit.along - 12, cum)
+            val signal = Geo.point(line, hit.along, cum)
+            val heading = if (approach.distanceTo(signal) >= 3) Geo.bearing(approach, signal)
+                else Geo.bearing(signal, Geo.point(line, hit.along + 12, cum))
+            if (RoadCamera.bearings(node.direction)?.none { Geo.diff(it, heading) <= 65 } == true)
+                return@mapNotNull null
+            val verifiedWay = if (directional) node.roads.any {
+                controlApproachMatches(it, node.at, relative, line, cum, hit)
+            } else false
+            if (directional && !fromRouter &&
+                ((node.roads.isNotEmpty() || relative != 0) && !verifiedWay || hit.offset > radius && !verifiedWay))
+                return@mapNotNull null
+            if (!directional && hit.offset > radius && !fromRouter) return@mapNotNull null
             RoadControl(node.kind, hit.along, Geo.point(line, hit.along, cum))
         }
         return projected.groupBy { it.kind }.values.flatMap { group ->
@@ -147,6 +150,39 @@ object Overpass {
                 }
             }
         }.sortedBy { it.along }
+    }
+
+    private fun controlApproachMatches(
+        way: ControlWay, node: LatLng, relative: Int, line: List<LatLng>, routeDistances: DoubleArray, hit: Projection,
+    ): Boolean {
+        val roadDistances = Geo.cumulative(way.line)
+        val at = Geo.project(node, way.line, roadDistances).along
+        return listOf(1, -1).any { order ->
+            if ((relative != 0 && relative != order) || (way.oneWay != 0 && way.oneWay != order)) return@any false
+            // Check the approach before the signal. Geometry after a turn belongs to a different road.
+            val available = if (order > 0) at else roadDistances.last() - at
+            val approach = minOf(18.0, available, hit.along)
+            if (approach < 5) return@any false
+            val mid = approach * 0.45
+            val roadStart = Geo.point(way.line, at - approach * order, roadDistances)
+            val roadMiddle = Geo.point(way.line, at - mid * order, roadDistances)
+            val routeStart = Geo.point(line, hit.along - approach, routeDistances)
+            val routeMiddle = Geo.point(line, hit.along - mid, routeDistances)
+            Geo.diff(Geo.bearing(roadStart, roadMiddle), Geo.bearing(routeStart, routeMiddle)) <= 55 &&
+                roadStart.distanceTo(routeStart) <= 8 && roadMiddle.distanceTo(routeMiddle) <= 8
+        }
+    }
+
+    /** Merge independent observations of the same approach, preserving the provider's anchor. */
+    fun mergeRoadControls(vararg sources: List<RoadControl>): List<RoadControl> {
+        val merged = mutableListOf<RoadControl>()
+        for (source in sources) {
+            for (control in source) {
+                val separation = if (control.kind == ControlKind.SIGNAL) 40 else 30
+                if (merged.none { it.kind == control.kind && abs(it.along - control.along) < separation }) merged += control
+            }
+        }
+        return merged.sortedBy { it.along }
     }
 
     data class AlongRoute(val cameras: List<RoadCamera>, val ways: List<LimitWay>, val zones: List<AverageSpeedZone>,
@@ -233,10 +269,9 @@ object Overpass {
         if (plate) parts.add("node[\"surveillance:type\"=\"ALPR\"](around:150,$c);")
         if (limits) parts.add("way[\"highway\"][\"maxspeed\"](around:12,$c);")
         if (speed) parts.add("relation[\"enforcement\"=\"average_speed\"](around:200,$c);")
-        parts.add("node[\"highway\"=\"traffic_signals\"](around:50,$c);")
-        parts.add("node[\"highway\"=\"stop\"](around:22,$c);")
-        parts.add("node[\"railway\"=\"level_crossing\"](around:22,$c);")
-        val q = "[out:json][timeout:40];(" + parts.joinToString("") + ");out body geom 8000;"
+        val controls = """(node["highway"="traffic_signals"](around:30,$c);node["highway"="stop"](around:22,$c);node["railway"="level_crossing"](around:22,$c);)->.controls;"""
+        val q = "[out:json][timeout:40];$controls(" + parts.joinToString("") +
+            ".controls;way(bn.controls)[highway];);out body geom 8000;"
         return firstAnswer(q) { parse(it) != null }
     }
 
@@ -301,7 +336,7 @@ object Overpass {
 
     fun parseRoadControls(data: ByteArray): List<RoadsideNode> {
         val elements = Json.obj(data)?.get("elements").asMaps().orEmpty()
-        val roads = mutableMapOf<Long, MutableList<List<LatLng>>>()
+        val roads = mutableMapOf<Long, MutableList<ControlWay>>()
         for (element in elements) {
             if (element["type"] != "way" || element.tags()["highway"] == null) continue
             val geometry = element["geometry"].asMaps().orEmpty().mapNotNull { node ->
@@ -310,8 +345,16 @@ object Overpass {
                 LatLng(lat, lon)
             }
             if (geometry.size < 2) continue
+            val tags = element.tags()
+            val oneWay = when (tags["oneway"]) {
+                "-1", "reverse" -> -1
+                "yes", "1", "true" -> 1
+                "no", "0", "false" -> 0
+                else -> if (tags["junction"] == "roundabout" || tags["highway"] == "motorway") 1 else 0
+            }
+            val way = ControlWay(geometry, oneWay)
             for (id in element["nodes"].asList().orEmpty().mapNotNull { it.long() }) {
-                roads.getOrPut(id) { mutableListOf() }.add(geometry)
+                roads.getOrPut(id) { mutableListOf() }.add(way)
             }
         }
         return elements.mapNotNull { e ->
@@ -325,7 +368,12 @@ object Overpass {
             }
             val lat = e["lat"].num() ?: return@mapNotNull null
             val lng = e["lon"].num() ?: return@mapNotNull null
-            RoadsideNode(kind, LatLng(lat, lng), tags["direction"], roads[e["id"].long()].orEmpty())
+            val direction = when (kind) {
+                ControlKind.SIGNAL -> tags["traffic_signals:direction"]
+                ControlKind.STOP -> tags["stop:direction"]
+                else -> null
+            } ?: tags["direction"]
+            RoadsideNode(kind, LatLng(lat, lng), direction, roads[e["id"].long()].orEmpty())
         }
     }
 

@@ -10,13 +10,32 @@ import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
 
 enum class MapStyleMode(val label: String) { SYSTEM("App"), LIGHT("Light"), DARK("Dark"), SUN("Sunrise & sunset") }
-enum class MarkerTheme(val label: String, val resource: Int?) {
-    CLASSIC("Classic", null), PORCELAIN("Porcelain", R.drawable.icon_porcelain),
-    NIGHT("Neon", R.drawable.icon_night), TRAIL("Trail", R.drawable.icon_trail),
+enum class MarkerTheme(val label: String, val resource: Int? = null, val assetPack: String? = null) {
+    CLASSIC("Kite Standard"),
+    LUCIDE("Lucide", assetPack = "lucide"),
+    MATERIAL("Material Rounded", assetPack = "material"),
+    PORCELAIN("Porcelain", R.drawable.icon_porcelain),
+    NIGHT("Neon", R.drawable.icon_night),
+    TRAIL("Trail", R.drawable.icon_trail);
+
+    companion object {
+        val selectable = listOf(CLASSIC, LUCIDE, MATERIAL)
+    }
 }
+
+enum class MapColorMode(val label: String) {
+    KITE("Kite Standard"), EXPRESSIVE("Material 3 Expressive"), CUSTOM("Custom map palettes")
+}
+
 enum class RoadStripStyle(val label: String) { CLASSIC("Classic"), MINIMAL("Bare line"), CONTRAST("Event cards") }
 
 enum class RoadStripPosition(val label: String) { BOTTOM("Bottom"), TOP("Top"), LEFT("Left"), RIGHT("Right") }
+
+enum class RouteArrowStyle(val label: String, val sprite: String, val fill: String, val edge: String, val width: Double) {
+    OUTLINED("Outlined", "turn-head", "#FFFFFF", "#0F766E", 10.0),
+    SOLID("Solid", "turn-solid", "#37E5CC", "#103843", 9.0),
+    OPEN("Open chevron", "turn-open", "#FFE6A5", "#3B301A", 5.0),
+}
 
 enum class DriveMarker(val label: String, val sprite: String, val top: Int? = null, val tilted: Int? = null) {
     ARROW("Arrow", "puck"),
@@ -26,15 +45,30 @@ enum class DriveMarker(val label: String, val sprite: String, val top: Int? = nu
 
 enum class NavigationPlaceSource(val label: String) { OPENSTREETMAP("OpenStreetMap"), GOOGLE("Google Maps") }
 
-enum class ThemeMode(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK("Dark") }
+enum class ThemeMode(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK("Dark"), SUN("Sunrise & sunset") }
 
+enum class InterfacePalette(val label: Int) {
+    KITE(R.string.palette_kite), EXPRESSIVE(R.string.palette_expressive);
+
+    companion object {
+        val available: List<InterfacePalette>
+            get() = if (android.os.Build.VERSION.SDK_INT >= 31) entries else listOf(KITE)
+
+        fun fromPreference(value: String?): InterfacePalette =
+            if (value == "WALLPAPER" || value == EXPRESSIVE.name) EXPRESSIVE else KITE
+    }
+}
 enum class UnitsMode(val label: String) {
     AUTO("Automatic"), METRIC("Kilometers"), IMPERIAL("Miles and feet"), YARDS("Miles and yards (UK)")
 }
 
 /** Everything in Settings, kept between launches. Each value is Compose state, so screens redraw when it changes. */
 object AppSettings {
-    private val d: SharedPreferences by lazy { KiteApp.app.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE) }
+    private val d: SharedPreferences by lazy {
+        KiteApp.app.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE).also {
+            if (it.contains("pidAccessToken")) it.edit().remove("pidAccessToken").apply()
+        }
+    }
 
     private class Pref<T>(val key: String, val read: (SharedPreferences) -> T, val write: (SharedPreferences.Editor, T) -> Unit) :
         ReadWriteProperty<Any?, T> {
@@ -56,8 +90,11 @@ object AppSettings {
     private fun places(key: String) = Pref(key, { p -> p.getString(key, null)?.let { PlaceCodec.decodeList(it) } ?: emptyList() },
         { e, v -> e.putString(key, PlaceCodec.encodeList(v)) })
 
-    var theme: ThemeMode by Pref("theme", { p -> ThemeMode.entries.firstOrNull { it.name == p.getString("theme", null) } ?: ThemeMode.SYSTEM },
+    var theme: ThemeMode by Pref("theme", { p -> ThemeMode.entries.firstOrNull { it.name == p.getString("theme", null) } ?: ThemeMode.DARK },
         { e, v -> e.putString("theme", v.name) })
+    var interfacePalette by Pref("interfacePalette",
+        { p -> InterfacePalette.fromPreference(p.getString("interfacePalette", null)) },
+        { e, v -> e.putString("interfacePalette", v.name) })
     var units: UnitsMode by Pref("units", { p -> UnitsMode.entries.firstOrNull { it.name == p.getString("units", null) } ?: UnitsMode.AUTO },
         { e, v -> e.putString("units", v.name) })
     var voice by bool("voice", true)
@@ -98,11 +135,25 @@ object AppSettings {
     var mapUiDayPanel by mapColor("mapUiDayPanel")
     var mapUiNightPanel by mapColor("mapUiNightPanel")
     var standardMap by bool("standardMap", true)
-    private fun palette(key: String, dark: Boolean) = Pref(key,
-        { MapPalette.decode(it.getString(key, null)) ?: MapPalette.default(dark) },
-        { e, value -> e.putString(key, value.colors.joinToString(",")) })
-    var dayMapPalette by palette("dayMapPalette", false)
-    var nightMapPalette by palette("nightMapPalette", true)
+    private fun palette(key: String) = Pref(key,
+        { MapPalette.decode(it.getString(key, null)) },
+        { e, value -> e.putString(key, value?.encode()) })
+    private var dayPaletteOverride by palette("dayMapPalette")
+    private var nightPaletteOverride by palette("nightMapPalette")
+    var mapColorMode by Pref("mapColorMode",
+        { p -> MapColorMode.entries.firstOrNull { it.name == p.getString("mapColorMode", null) } ?: MapColorMode.CUSTOM },
+        { e, v -> e.putString("mapColorMode", v.name) })
+    fun resolveMapPalette(dark: Boolean, wallpaper: MapPalette?): MapPalette = when (mapColorMode) {
+        MapColorMode.KITE -> MapPalette.default(dark)
+        MapColorMode.EXPRESSIVE -> wallpaper ?: MapPalette.default(dark)
+        MapColorMode.CUSTOM -> (if (dark) nightPaletteOverride else dayPaletteOverride)?.let {
+            if (it.wasFixedExpressive()) wallpaper ?: MapPalette.default(dark) else it
+        } ?: (if (interfacePalette == InterfacePalette.EXPRESSIVE) wallpaper else null) ?: MapPalette.default(dark)
+    }
+    fun setMapPalette(dark: Boolean, value: MapPalette?) {
+        if (dark) nightPaletteOverride = value else dayPaletteOverride = value
+        mapColorMode = MapColorMode.CUSTOM
+    }
     var walkingAhead by bool("walkingAhead", true)
     var walkingAheadRight by bool("walkingAheadRight")
     var walkingAheadRange by int("walkingAheadRange", 600)
@@ -120,8 +171,23 @@ object AppSettings {
         Overpass.ControlKind.CROSSING -> walkingCrossings
     }
 
+    var layersOnMapExpanded by bool("layersOnMapExpanded", true)
+    var routeArrowStyle by Pref("routeArrowStyle",
+        { p -> RouteArrowStyle.entries.firstOrNull { it.name == p.getString("routeArrowStyle", null) } ?: RouteArrowStyle.OUTLINED },
+        { e, value -> e.putString("routeArrowStyle", value.name) })
+
     var roadAheadStrip by bool("roadAheadStrip", true)
     var terrain3D by bool("terrain3D")
+    var mapTrees by bool("mapTrees", true)
+    var mapBuildings by bool("mapBuildings", true)
+    var nearbyDeparturesButton by bool("nearbyDeparturesButton", true)
+    var routeWeather by bool("routeWeather", true)
+    var language by Pref("uiLanguage", { p ->
+        KiteLanguage.entries.firstOrNull { it.tag == p.getString("uiLanguage", null) } ?: KiteLanguage.SYSTEM
+    }, { e, value -> e.putString("uiLanguage", value.tag) })
+    var czechVoiceSearch by bool("czechVoiceSearch")
+    var launcherNightIcon by bool("launcherNightIcon")
+    var launcherMapsName by bool("launcherMapsName")
     var buildingShadows by bool("buildingShadows", true)
     var streetLamps by bool("streetLamps", true)
     var googleMapPlaces by bool("googleMapPlaces")
@@ -158,6 +224,16 @@ object AppSettings {
         { e, v -> e.putStringSet("navigationPlaceGroups", v.map { it.name }.toSet()) })
     var hikingTrails by bool("hikingTrails")
     var bikeTrails by bool("bikeTrails")
+
+    private fun pathLayer(key: String, previousKey: String) = Pref(key, { prefs ->
+        if (prefs.contains(key)) prefs.getBoolean(key, false) else {
+            // Previous versions enabled the local paths together with the route overlay.
+            prefs.getBoolean(previousKey, false).also { prefs.edit().putBoolean(key, it).apply() }
+        }
+    }, { editor, value -> editor.putBoolean(key, value) })
+
+    var footpaths by pathLayer("footpaths", "hikingTrails")
+    var cycleways by pathLayer("cycleways", "bikeTrails")
     var arrivalParking by bool("arrivalParking", true)
     var aheadSignals by bool("aheadSignals", true)
     var aheadStops by bool("aheadStops", true)
@@ -173,8 +249,6 @@ object AppSettings {
         Overpass.ControlKind.RAIL -> aheadRail
         Overpass.ControlKind.CROSSING -> aheadCrossings
     }
-    var pidAccessToken by Pref("pidAccessToken", { it.getString("pidAccessToken", "").orEmpty() },
-        { e, token -> e.putString("pidAccessToken", token) })
     var mapboxPublicToken by Pref("mapboxPublicToken", { it.getString("mapboxPublicToken", "").orEmpty() },
         { e, token -> e.putString("mapboxPublicToken", token) })
     val activeMapboxToken: String? get() = mapboxPublicToken.takeIf {
@@ -295,8 +369,10 @@ object AppSettings {
 
     fun shows(a: WazeAlert): Boolean = wants(a.kind) && recent(a)
 
-    fun showsOnRoad(a: WazeAlert): Boolean = wazeOn && wazeOnMap && aheadWaze &&
+    fun showsInStrip(a: WazeAlert): Boolean = wazeOn && aheadWaze &&
         a.kind in roadWazeKinds && a.kind in Waze.shares && recent(a)
+
+    fun showsOnRoad(a: WazeAlert): Boolean = wazeOnMap && showsInStrip(a)
 
     fun savedEntry(p: Place) = saved.firstOrNull { it.matchesNearby(p) }
 

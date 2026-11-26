@@ -31,12 +31,59 @@ class NavGlide : Choreographer.FrameCallback {
     var onMapPuck: ((Feature?) -> Unit)? = null
     var cameraOutput: ((CameraPosition, Boolean) -> Unit)? = null
     private var lastCamera: CameraPosition? = null
+    private var cameraVerified = false
+    private var centeredViewport = false
+
+    /** If the SDK cannot restore the padded camera, use a plain camera aimed at the same GPS fix. */
+    fun recoverWithCenteredViewport(): Boolean {
+        if (centeredViewport || nav?.following != true || mapTouched) return false
+        centeredViewport = true
+        lastCamera = null
+        step(0.016)
+        return true
+    }
+
+    fun markerY(height: Float, compact: Boolean = false): Float =
+        carY(height, carNorth, compact, centeredViewport)
+    private var phoneHeading: Double? = null
+    private var headingOnScreen: Double? = null
+    var useMapMarker = false
+        set(value) {
+            if (field == value) return
+            field = value
+            puckPushed = null
+        }
+    private var publishedPuck: Feature? = null
+
+    fun replayPuck() { publishPuck(publishedPuck) }
+
+    fun setPhoneHeading(value: Double?) {
+        if (phoneHeading == value) return
+        phoneHeading = value
+        if (nav != null) start()
+    }
+
+    fun markCameraVerified(verified: Boolean) {
+        cameraVerified = verified
+        if (!verified) carOnScreen = false
+    }
     val followingCamera: CameraPosition?
         get() = lastCamera.takeIf { nav?.following == true }
 
     fun resumeFollowing() {
         mapTouched = false
         if (nav != null) start()
+    }
+
+    fun resize(width: Float, height: Float) {
+        if (widthDp == width && heightDp == height) return
+        widthDp = width
+        heightDp = height
+        if (nav?.following == true && !mapTouched) {
+            lastCamera = null
+            cameraVerified = false
+            step(0.016)
+        }
     }
 
     fun restoreFollowingCamera() {
@@ -47,6 +94,8 @@ class NavGlide : Choreographer.FrameCallback {
     fun recenter() {
         mapTouched = false
         lastCamera = null
+        cameraVerified = false
+        carOnScreen = false
     }
     /** The map's height in dp. */
     var heightDp = 800f
@@ -67,15 +116,16 @@ class NavGlide : Choreographer.FrameCallback {
         /** Where the car sits on screen while following: 70% of the way down. */
         const val TOP_FRACTION = 0.7f
         fun bottomInset(height: Float, compact: Boolean = false): Float =
-            if (compact) height * 0.12f else min(170f, height * 0.34f)
+            if (compact) height * 0.10f else min(170f, height * 0.34f)
         fun topInset(height: Float, compact: Boolean = false): Float {
-            if (compact) return height * 0.43f
+            if (compact) return height * 0.49f
             val viewport = min(height, max(48f, height * 0.10f))
             return min(height * TOP_FRACTION, max(0f, height - bottomInset(height) - viewport))
         }
         /** The car's height on a screen [height] dp tall, matching the camera's padded center. */
-        fun carY(height: Float, north: Float = 0f, compact: Boolean = false): Float =
-            (topInset(height, compact) * (if (compact) 1f else 1 - north) + height - bottomInset(height, compact)) / 2
+        fun carY(height: Float, north: Float = 0f, compact: Boolean = false, centered: Boolean = false): Float =
+            if (centered) height / 2
+            else (topInset(height, compact) * (if (compact) 1f else 1 - north) + height - bottomInset(height, compact)) / 2
         const val PUCK = "vela-puck"
 
         internal fun shortestTurn(from: Double, to: Double): Double = ((to - from + 540) % 360) - 180
@@ -83,6 +133,37 @@ class NavGlide : Choreographer.FrameCallback {
         internal fun needsCameraCorrection(
             actual: LatLng, expected: LatLng, actualZoom: Double, expectedZoom: Double,
         ): Boolean = actual.distanceTo(expected) > 5.0 || abs(actualZoom - expectedZoom) > 0.08
+
+        internal fun matchesViewport(
+            actual: LatLng, expected: LatLng, actualZoom: Double, expectedZoom: Double,
+            actualPitch: Double, expectedPitch: Double, actualBearing: Double, expectedBearing: Double,
+            actualInsets: DoubleArray?, expectedInsets: DoubleArray?,
+        ): Boolean {
+            if (needsCameraCorrection(actual, expected, actualZoom, expectedZoom) ||
+                abs(actualPitch - expectedPitch) > 1.0 || abs(shortestTurn(actualBearing, expectedBearing)) > 2.0) return false
+            return (0..3).all { i ->
+                abs((actualInsets?.getOrNull(i) ?: 0.0) - (expectedInsets?.getOrNull(i) ?: 0.0)) <= 2.0
+            }
+        }
+
+        internal fun matchesViewport(actual: CameraPosition, expected: CameraPosition): Boolean {
+            val center = actual.target ?: return false
+            val target = expected.target ?: return false
+            return matchesViewport(center.kite(), target.kite(), actual.zoom, expected.zoom, actual.tilt, expected.tilt,
+                actual.bearing, expected.bearing, actual.padding, expected.padding)
+        }
+
+        internal fun matchesArrowPosition(
+            x: Double, y: Double, width: Int, height: Int, padding: DoubleArray?, tolerance: Double,
+        ): Boolean {
+            if (x !in 0.0..width.toDouble() || y !in 0.0..height.toDouble()) return false
+            val left = padding?.getOrNull(0) ?: 0.0
+            val top = padding?.getOrNull(1) ?: 0.0
+            val right = padding?.getOrNull(2) ?: 0.0
+            val bottom = padding?.getOrNull(3) ?: 0.0
+            return abs(x - (width + left - right) / 2) <= tolerance &&
+                abs(y - (height + top - bottom) / 2) <= tolerance
+        }
 
         internal fun reliableFix(ageMs: Long, accuracy: Double): Boolean =
             ageMs in 0..5_000 && accuracy in 0.0..45.0
@@ -122,6 +203,7 @@ class NavGlide : Choreographer.FrameCallback {
 
     private var shownAlong: Double? = null
     private var shownCoord: LatLng? = null
+    val visualPosition: LatLng? get() = shownCoord
     private var shownBearing = 0.0
     private var markerBearing = 0.0
     private var shownAcross = 600.0
@@ -134,7 +216,10 @@ class NavGlide : Choreographer.FrameCallback {
         val newlyLocated = !starting && shownCoord?.let {
             shouldReanchorAfterStartup(awaitingAccurateFix && reliable, it.distanceTo(loc.coord), loc.accuracy)
         } == true
-        if (starting) awaitingAccurateFix = !reliable
+        if (starting) {
+            centeredViewport = false
+            awaitingAccurateFix = !reliable
+        }
         else if (reliable) awaitingAccurateFix = false
         if (starting || newlyLocated) {
             if (n.following) recenter()
@@ -150,7 +235,15 @@ class NavGlide : Choreographer.FrameCallback {
             cum = Geo.cumulative(poly)
             shownAlong = null
         }
-        onRoute = p?.let { !it.offRoute && it.offsetMeters < if (n.route.mode == TravelMode.WALK) 14 else 40 } ?: false
+        val snapDistance = when {
+            n.route.mode == TravelMode.WALK -> 14
+            starting || newlyLocated -> 16
+            else -> 32
+        }
+        onRoute = p?.let {
+            !it.offRoute && it.offsetMeters < snapDistance &&
+                (!loc.courseKnown || loc.speed < 3 || Geo.diff(loc.course, it.routeBearing) < 105)
+        } ?: false
         fixAt = System.nanoTime()
         fixAlong = p?.alongMeters ?: 0.0
         fixCoord = loc.coord
@@ -185,15 +278,26 @@ class NavGlide : Choreographer.FrameCallback {
         shownAlong = null
         shownCoord = null
         lastCamera = null
+        cameraVerified = false
         carOnScreen = false
+        phoneHeading = null
+        headingOnScreen = null
         clearPuck()
         puckOnMap = false
         puckPushed = null
     }
 
     private fun clearPuck() {
-        onMapPuck?.invoke(null)
-        (map?.style?.getSource(PUCK) as? GeoJsonSource)?.setGeoJson(org.maplibre.geojson.FeatureCollection.fromFeatures(emptyList()))
+        puckPushed = null
+        publishPuck(null)
+    }
+
+    private fun publishPuck(marker: Feature?) {
+        publishedPuck = marker
+        val source = map?.style?.getSource(PUCK) as? GeoJsonSource
+        if (marker == null) source?.setGeoJson(org.maplibre.geojson.FeatureCollection.fromFeatures(emptyList()))
+        else source?.setGeoJson(marker)
+        onMapPuck?.invoke(marker)
     }
 
     private fun start() {
@@ -259,15 +363,18 @@ class NavGlide : Choreographer.FrameCallback {
         shownBearing = (shownBearing + shortestTurn(shownBearing, bearingTarget) *
             (if (dt == 0.0) 1.0 else 1 - exp(-dt / 0.45)) + 360) % 360
         // Zooming in for a turn takes about a second; easing back out afterwards is gentler.
-        val zoomTime = if (targetAcross < shownAcross) 0.48 else 1.6
+        val zoomTime = if (targetAcross < shownAcross) 0.62 else 1.35
         shownAcross += (targetAcross - shownAcross) * (if (dt == 0.0) 1.0 else 1 - exp(-dt / zoomTime))
         shownPitch += (targetPitch - shownPitch) * (if (dt == 0.0) 1.0 else 1 - exp(-dt / 0.28))
 
-        if (n.following) {
+        if (n.following && cameraVerified && !useMapMarker) {
             if (!carOnScreen) carOnScreen = true
             if (puckOnMap) { clearPuck(); puckOnMap = false }
         } else {
-            lastCamera = null
+            if (!n.following) {
+                lastCamera = null
+                cameraVerified = false
+            }
             if (carOnScreen) carOnScreen = false
             // On the map, moved only now and then: each new spot makes the map fade the arrow in again.
             val now = System.nanoTime()
@@ -279,29 +386,36 @@ class NavGlide : Choreographer.FrameCallback {
                 val marker = Feature.fromGeometry(Point.fromLngLat(shown.lng, shown.lat))
                     .apply {
                         addNumberProperty("bearing", markerBearing)
-                        addStringProperty("icon", markerStyle.sprite)
+                        addStringProperty("icon", markerStyle.mapSprite)
                     }
-                (map?.style?.getSource(PUCK) as? GeoJsonSource)?.setGeoJson(marker)
-                onMapPuck?.invoke(marker)
+                publishPuck(marker)
                 puckPushedMarker = markerStyle
                 puckPushed = shown; puckPushedAt = now; puckPushedBearing = markerBearing; puckOnMap = true
             }
         }
-        val northTarget = if (look == MapLook.NORTH) 1.0 else 0.0
+        val compass = phoneHeading
+        val northTarget = if (look == MapLook.NORTH && compass == null) 1.0 else 0.0
         northBlend += (northTarget - northBlend) * (if (dt == 0.0) 1.0 else 1 - exp(-dt / 0.3))
         if (abs(northTarget - northBlend) < 0.001) northBlend = northTarget
-        if (n.following) {
+        if (n.following && !mapTouched) {
             val d = KiteApp.app.resources.displayMetrics.density.toDouble()
             // North up: the map turns to face north and the car moves up to the middle, as the road
             // ahead can be any way round. Otherwise it faces the way you go with the car low down.
-            val heading = (shownBearing + shortestTurn(shownBearing, 0.0) * northBlend + 360) % 360
+            val routeHeading = (shownBearing + shortestTurn(shownBearing, 0.0) * northBlend + 360) % 360
+            val wantedHeading = compass ?: routeHeading
+            val lastHeading = headingOnScreen ?: lastCamera?.bearing ?: wantedHeading
+            val heading = if (compass == null && headingOnScreen == null) routeHeading else
+                (lastHeading + shortestTurn(lastHeading, wantedHeading) * (1 - exp(-dt / 0.13)) + 360) % 360
+            headingOnScreen = heading.takeIf { compass != null || abs(shortestTurn(heading, wantedHeading)) >= 0.3 }
             carNorth = northBlend.toFloat()
             carSquash = (1 - 0.36 * (shownPitch / 50.0).coerceIn(0.0, 1.0)).toFloat()
             // A pitched camera sees farther than the same zoom flat: zoom in a little to match the iPhone's distance.
-            val zoom = MapCam.zoomFor(shownAcross, coordNow.lat, widthDp) + 0.35
+            val across = if (compactViewport) max(54.0, shownAcross * 0.42) else shownAcross
+            val zoom = (MapCam.zoomFor(across, shown.lat, widthDp) + 0.35).coerceAtMost(21.5)
+            val top = if (centeredViewport) 0.0 else topInset(heightDp, compactViewport) * (if (compactViewport) 1.0 else 1 - northBlend) * d
+            val bottom = if (centeredViewport) 0.0 else bottomInset(heightDp, compactViewport) * d
             val camera = CameraPosition.Builder().target(shown.ml()).zoom(zoom).tilt(shownPitch).bearing(heading)
-                .padding(0.0, topInset(heightDp, compactViewport) * (if (compactViewport) 1.0 else 1 - northBlend) * d,
-                    0.0, bottomInset(heightDp, compactViewport) * d).build()
+                .padding(0.0, top, 0.0, bottom).build()
             carTurn = shortestTurn(camera.bearing, markerBearing).toFloat()
             val last = lastCamera
             if (last == null || !nearCamera(last, camera)) {

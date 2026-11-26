@@ -81,17 +81,17 @@ fun TransitNavigationOverlay(model: AppModel, journey: TransitGuidance, showMapb
                 if (leg != null && !leg.isWalk) LineChip(leg)
                 Text(label, color = rideInk, fontSize = KType.headline, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 if (phase != TransitGuidance.Phase.COMPLETE && (!journey.following || walking?.following == false))
-                    IconButton(model::followTransit) { Icon(Icons.Filled.MyLocation, "Re-centre", tint = rideInk) }
+                    IconButton(model::followTransit) { Icon(Icons.Filled.MyLocation, localizeLabel("Re-centre"), tint = rideInk) }
             }
             when (phase) {
                 TransitGuidance.Phase.WALK -> {
                     walking?.progress?.let {
                         Text("${Fmt.distance(it.remainingMeters)} · ${Fmt.duration(it.remainingSeconds)}", color = secondaryText)
                     }
-                    if (walking == null && !journey.walkingError) Text("Preparing walking guidance…", color = secondaryText)
+                    if (walking == null && !journey.walkingError) Text(localizeLabel("Preparing walking guidance…"), color = secondaryText)
                     if (journey.walkingError) {
-                        Text("Walking directions unavailable. The transfer path is still on the map.", color = secondaryText)
-                        TextButton(model::retryTransitWalk) { Text("Retry walking directions") }
+                        Text(localizeLabel("Walking directions unavailable. The transfer path is still on the map."), color = secondaryText)
+                        TextButton(model::retryTransitWalk) { Text(localizeLabel("Retry walking directions")) }
                     }
                     TextButton(model::advanceTransitLeg) { Text(if (journey.legIndex == journey.trip.legs.lastIndex) "I'm at the destination" else "I'm at the stop") }
                 }
@@ -103,15 +103,15 @@ fun TransitNavigationOverlay(model: AppModel, journey: TransitGuidance, showMapb
                     val details = listOfNotNull(leg?.headsign?.let { "Toward $it" }, time?.let { Fmt.time(Date(it)) })
                     if (platform != null) {
                         val change = if (call?.platform != null && call.platform != platform) " · changed from ${call.platform}" else ""
-                        Text("Platform $platform$change", fontWeight = FontWeight.Bold, color = interfaceAccentText)
+                        Text(kt("Platform $platform$change", "Nástupiště $platform$change"), fontWeight = FontWeight.Bold, color = interfaceAccentText)
                     } else if (leg?.vehicle == TransitLeg.Vehicle.TRAIN) {
-                        Text("Platform not published", color = secondaryText, fontSize = KType.caption)
+                        Text(localizeLabel("Platform not published"), color = secondaryText, fontSize = KType.caption)
                     }
                     if (leg != null) TransitStatus(leg, status, departureDelay = live?.delayMinutes)
                     if (details.isNotEmpty()) Text(details.joinToString(" · "), color = secondaryText)
-                    if (time != null && now > time + 180_000) Text("This departure may have passed.", color = Vela.closed)
+                    if (time != null && now > time + 180_000) Text(localizeLabel("This departure may have passed."), color = Vela.closed)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton({ showDepartures = true }) { Text("Departures") }
+                        TextButton({ showDepartures = true }) { Text(localizeLabel("Departures")) }
                         Button(model::boardTransit, enabled = !journey.boarding) {
                             Text(if (journey.boarding) "Preparing ride…" else "I'm on board")
                         }
@@ -130,15 +130,15 @@ fun TransitNavigationOverlay(model: AppModel, journey: TransitGuidance, showMapb
                     }
                     val followingLeg = journey.trip.legs.drop(journey.legIndex + 1).firstOrNull { !it.isWalk }
                     if (followingLeg != null) Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Transfer to", color = secondaryText)
+                        Text(localizeLabel("Transfer to"), color = secondaryText)
                         LineChip(followingLeg)
                         followingLeg.headsign?.let { Text(it, color = secondaryText, maxLines = 1) }
                     }
                     if (leg != null) TransitStatus(leg, status, arrival = true, next = next, departureDelay = journey.liveDeparture?.delayMinutes)
                     val exit = listOfNotNull(leg?.toName, (status?.exit?.arrival ?: leg?.arrive)?.let { Fmt.time(Date(it)) })
                     if (exit.isNotEmpty()) Text("Get off · ${exit.joinToString(" · ")}", color = secondaryText)
-                    if (!gps) Text("Waiting for a position along the route", color = secondaryText, fontSize = KType.caption)
-                    TextButton(model::advanceTransitLeg) { Text("I'm off the vehicle") }
+                    if (!gps) Text(localizeLabel("Waiting for a position along the route"), color = secondaryText, fontSize = KType.caption)
+                    TextButton(model::advanceTransitLeg) { Text(localizeLabel("I'm off the vehicle")) }
                 }
                 TransitGuidance.Phase.COMPLETE -> {}
             }
@@ -146,20 +146,20 @@ fun TransitNavigationOverlay(model: AppModel, journey: TransitGuidance, showMapb
                 TransitTransferNotes(refreshedTrip, model.transitLive, fromLeg = journey.legIndex)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 if (phase != TransitGuidance.Phase.COMPLETE) {
-                    TextButton({ tripDetent = SheetDetent.HALF; showTrip = true }) { Text("Trip") }
+                    TextButton({ tripDetent = SheetDetent.HALF; showTrip = true }) { Text(localizeLabel("Trip")) }
                     if (entrances.isNotEmpty()) {
                         TextButton({ showAccess = true }) { Text(if (phase == TransitGuidance.Phase.RIDE) "Exits" else "Entrances") }
                     }
-                    TextButton(model::replanTransit) { Text("Replan") }
-                    TextButton({ confirmEnd = true }) { Text("End") }
-                } else Button(model::endNavigation) { Text("Done") }
+                    TextButton(model::replanTransit) { Text(localizeLabel("Replan")) }
+                    TextButton({ confirmEnd = true }) { Text(localizeLabel("End")) }
+                } else Button(model::endNavigation) { Text(localizeLabel("Done")) }
             }
         }
         if (showTrip) Box(Modifier.align(Alignment.BottomCenter)) {
             BottomSheet(tripDetent, { tripDetent = it }, full, peekHeight = 76.dp, topClearance = 12.dp, allowPeek = false, opaque = true,
                 header = {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Trip", modifier = Modifier.weight(1f).padding(start = 6.dp),
+                        Text(localizeLabel("Trip"), modifier = Modifier.weight(1f).padding(start = 6.dp),
                             color = primaryText, fontWeight = FontWeight.Bold, fontSize = KType.headline)
                         TextButton({
                             if (journey.overviewing) model.followTransit()
@@ -178,12 +178,15 @@ fun TransitNavigationOverlay(model: AppModel, journey: TransitGuidance, showMapb
                 content = {
                     Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 6.dp)) {
                         if (walking != null) {
-                            Text("Walking directions", color = primaryText, fontWeight = FontWeight.Bold, fontSize = KType.headline)
+                            Text(localizeLabel("Walking directions"), color = primaryText, fontWeight = FontWeight.Bold, fontSize = KType.headline)
                             StepsList(walking.route, walking.progress?.nextIndex ?: 0)
                             HorizontalDivider()
                         }
                         TransitTimeBar(refreshedTrip, model.transitLive)
-                        TransitSteps(refreshedTrip, activeLeg = journey.legIndex, live = model.transitLive)
+                        TransitSteps(refreshedTrip, activeLeg = journey.legIndex, live = model.transitLive, onStep = { leg, at ->
+                            showTrip = false
+                            model.previewTransitStep(leg, at)
+                        })
                     }
                 })
         }
@@ -203,9 +206,9 @@ fun TransitNavigationOverlay(model: AppModel, journey: TransitGuidance, showMapb
         }
     }
     if (confirmEnd) AlertDialog(onDismissRequest = { confirmEnd = false },
-        title = { Text("End this trip?") },
-        confirmButton = { TextButton(model::endNavigation) { Text("End trip") } },
-        dismissButton = { TextButton({ confirmEnd = false }) { Text("Keep going") } })
+        title = { Text(localizeLabel("End this trip?")) },
+        confirmButton = { TextButton(model::endNavigation) { Text(localizeLabel("End trip")) } },
+        dismissButton = { TextButton({ confirmEnd = false }) { Text(localizeLabel("Keep going")) } })
 }
 
 internal fun transitDelay(minutes: Int): String = when {
@@ -225,7 +228,7 @@ internal fun TransitStatus(
     val exitDelay = live?.exit?.arrivalDelay ?: leg.calls.lastOrNull()?.arrivalDelay
     val delay = if (arrival) nextDelay ?: exitDelay ?: boardingDelay else boardingDelay
     if (live?.cancelled == true || leg.cancelled) {
-        Text("Service cancelled or stop skipped", color = Vela.closed, fontSize = KType.caption)
+        Text(localizeLabel("Service cancelled or stop skipped"), color = Vela.closed, fontSize = KType.caption)
     } else {
         val prefix = when {
             !arrival || nextDelay != null || delay == null -> ""
@@ -247,7 +250,7 @@ internal fun TransitStatus(
             Text(if (live.gps) "Live vehicle position on map" else "Estimated vehicle position on map",
                 fontSize = KType.caption, color = secondaryText)
         }
-        live?.occupancy?.let { Text("Occupancy · $it", fontSize = KType.caption, color = secondaryText) }
+        live?.occupancy?.let { Text(kt("Occupancy · $it", "Obsazenost · ${localizeLabel(it)}"), fontSize = KType.caption, color = secondaryText) }
     }
     for (notice in live?.notices ?: leg.notices) {
         val title = notice.title.ifBlank { "Service alert" }
@@ -258,7 +261,7 @@ internal fun TransitStatus(
         }
         if (expanded) {
             if (notice.message.isNotBlank()) Text(notice.message, fontSize = KType.caption, color = primaryText)
-            notice.url?.let { url -> TextButton({ context.open(url) }) { Text("Operator notice") } }
+            notice.url?.let { url -> TextButton({ context.open(url) }) { Text(localizeLabel("Operator notice")) } }
         }
     }
 

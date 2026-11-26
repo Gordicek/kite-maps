@@ -81,10 +81,10 @@ object DirectionsParser {
         val distance = gdbl(at(summary, 2, 0)) ?: return null
         val typical = gdbl(at(summary, 3, 0)) ?: return null
         val traffic = gdbl(at(summary, 10, 0, 0))
-        val start = coord(at(summary, 7, 3, 2))
-        val end = coord(at(summary, 7, 3, 3))
-        val line = if ((geometry?.size ?: 0) >= 2) geometry!! else listOfNotNull(start, end)
-        if (line.size < 2) return null
+        val line = geometry ?: return null
+        val length = Geo.length(line)
+        if (!distance.isFinite() || distance <= 0 || length < 1 ||
+            kotlin.math.abs(length - distance) > max(45.0, distance * 0.18)) return null
         val spans = (arr(at(route, 3, 5, 0)) ?: emptyList()).mapNotNull { s ->
             val level = gint(at(s, 0)) ?: return@mapNotNull null
             val st = gdbl(at(s, 1)) ?: return@mapNotNull null
@@ -99,12 +99,6 @@ object DirectionsParser {
         return r
     }
 
-    private fun coord(n: Any?): LatLng? {
-        val lat = gdbl(at(n, 2)) ?: return null
-        val lng = gdbl(at(n, 3)) ?: return null
-        return LatLng(lat, lng)
-    }
-
     /** `[0]` latitude deltas, `[1]` longitude deltas, E7, the first absolute. */
     fun decodeGeometry(node: Any?): List<LatLng>? {
         val lat = arr(at(node, 0)) ?: return null
@@ -113,9 +107,11 @@ object DirectionsParser {
         var la = 0.0
         var ln = 0.0
         return lat.indices.map { i ->
-            la += gdbl(lat[i]) ?: 0.0
-            ln += gdbl(lng[i]) ?: 0.0
-            LatLng(la / 1e7, ln / 1e7)
+            la += gdbl(lat[i]) ?: return null
+            ln += gdbl(lng[i]) ?: return null
+            val point = LatLng(la / 1e7, ln / 1e7)
+            if (point.lat !in -90.0..90.0 || point.lng !in -180.0..180.0) return null
+            point
         }
     }
 

@@ -5,6 +5,12 @@ package app.kite.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -25,6 +31,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.isSpecified
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
@@ -42,7 +52,23 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.Locale
+
+@Composable
+internal fun PlacePeek(model: AppModel, place: Place) {
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable { model.detent = SheetDetent.HALF }
+            .padding(vertical = 7.dp)) {
+            Text(place.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+                color = primaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            PlaceMetaLine(place, showStars = false, here = model.userLatLng)
+        }
+        CircleIconButton(Icons.Filled.Directions, description = localizeLabel("Directions")) { model.openDirections(place) }
+        CircleIconButton(Icons.Filled.Close, description = localizeLabel("Close place")) { model.closePlace(restoreViewport = false) }
+    }
+}
 
 @Composable
 fun PlaceHeader(model: AppModel, place: Place) {
@@ -51,7 +77,7 @@ fun PlaceHeader(model: AppModel, place: Place) {
     var chooseLists by remember(place.id) { mutableStateOf(false) }
     Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (model.placeIndoorPlan?.first == place.id) {
-            AssistChip(onClick = { model.openIndoor(place) }, label = { Text("Indoor floors") },
+            AssistChip(onClick = { model.openIndoor(place) }, label = { Text(localizeLabel("Indoor floors")) },
                 leadingIcon = { Icon(Icons.Filled.Apartment, null, Modifier.size(17.dp)) })
         }
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -61,7 +87,7 @@ fun PlaceHeader(model: AppModel, place: Place) {
                         overflow = TextOverflow.Ellipsis, lineHeight = 30.sp)
                 }
             }
-            CircleIconButton(Icons.Filled.Close, description = "Close place") { model.closePlace() }
+            CircleIconButton(Icons.Filled.Close, description = localizeLabel("Close place")) { model.closePlace() }
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -75,7 +101,7 @@ fun PlaceHeader(model: AppModel, place: Place) {
             CircleIconButton(if (saved) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
                 description = if (saved) "Manage saved place" else "Save place") { chooseLists = true }
             Box {
-                CircleIconButton(Icons.Filled.Share, description = "Share place") { share = true }
+                CircleIconButton(Icons.Filled.Share, description = localizeLabel("Share place")) { share = true }
                 DropdownMenu(share, { share = false }) {
                     listOf("Open in Google Maps" to { ctx.open(place.shareUrl) },
                         "Kite link" to { ctx.share(QuickLaunch.shareLink(place)) },
@@ -93,21 +119,24 @@ fun PlaceHeader(model: AppModel, place: Place) {
                 .clickable { model.openDirections(place) }, horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Directions, null, tint = interfaceOnAccent, modifier = Modifier.size(24.dp))
-                Text("Directions", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = interfaceOnAccent)
+                Text(localizeLabel("Directions"), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = interfaceOnAccent)
             }
             Row(Modifier.heightIn(min = 56.dp).clip(CircleShape).background(interfaceGround)
                 .clickable { model.openDirections(place, TravelMode.DRIVE, startNow = true) }.padding(horizontal = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Navigation, null, tint = interfaceAccentText, modifier = Modifier.size(22.dp))
-                Text("Go", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = interfaceAccentText)
+                Text(localizeLabel("Go"), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = interfaceAccentText)
             }
         }
     }
-    if (chooseLists) SavePlaceDialog(place) { chooseLists = false }
+    if (chooseLists) SavePlaceDialog(place, { chooseLists = false }) {
+        chooseLists = false
+        model.nameNewShortcut(place)
+    }
 }
 
 @Composable
-private fun SavePlaceDialog(place: Place, close: () -> Unit) {
+private fun SavePlaceDialog(place: Place, close: () -> Unit, shortcut: () -> Unit) {
     val settings = AppSettings
     val existing = settings.savedEntry(place)
     var selected by remember(place.id) {
@@ -123,7 +152,12 @@ private fun SavePlaceDialog(place: Place, close: () -> Unit) {
             Column(Modifier.heightIn(max = 350.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(place.name, style = MaterialTheme.typography.titleMedium, color = primaryText)
-                if (existing == null) Text("Save to your collection and choose any lists.", color = secondaryText)
+                if (existing == null) Text(localizeLabel("Save to your collection and choose any lists."), color = secondaryText)
+                FilledTonalButton(shortcut, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Filled.AddLocationAlt, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(localizeLabel("Add shortcut"))
+                }
                 for (folder in settings.placeFolders + pendingFolders) {
                     val checked = folder.id in selected
                     Row(Modifier.fillMaxWidth().toggleable(checked, role = androidx.compose.ui.semantics.Role.Checkbox) {
@@ -134,22 +168,22 @@ private fun SavePlaceDialog(place: Place, close: () -> Unit) {
                     }
                 }
                 if (creating) {
-                    OutlinedTextField(name, { name = it }, label = { Text("List name") }, singleLine = true,
+                    OutlinedTextField(name, { name = it }, label = { Text(localizeLabel("List name")) }, singleLine = true,
                         modifier = Modifier.fillMaxWidth())
                     Row {
-                        TextButton({ creating = false }) { Text("Cancel") }
+                        TextButton({ creating = false }) { Text(localizeLabel("Cancel")) }
                         TextButton({
                             val folder = PlaceFolder(name.trim())
                             pendingFolders = pendingFolders + folder
                             selected = selected + folder.id
                             name = ""
                             creating = false
-                        }, enabled = name.isNotBlank()) { Text("Add list") }
+                        }, enabled = name.isNotBlank()) { Text(localizeLabel("Add list")) }
                     }
                 } else TextButton({ name = ""; creating = true }) {
                     Icon(Icons.Filled.CreateNewFolder, null)
                     Spacer(Modifier.width(6.dp))
-                    Text("New list")
+                    Text(localizeLabel("New list"))
                 }
             }
         },
@@ -161,8 +195,8 @@ private fun SavePlaceDialog(place: Place, close: () -> Unit) {
             }, enabled = !creating) { Text(if (existing == null && selected.isEmpty()) "Save place" else "Save") }
         },
         dismissButton = {
-            if (existing != null) TextButton({ settings.removeSaved(existing.id); close() }) { Text("Remove saved place") }
-            else TextButton(close) { Text("Cancel") }
+            if (existing != null) TextButton({ settings.removeSaved(existing.id); close() }) { Text(localizeLabel("Remove saved place")) }
+            else TextButton(close) { Text(localizeLabel("Cancel")) }
         },
     )
 }
@@ -171,12 +205,12 @@ private fun SavePlaceDialog(place: Place, close: () -> Unit) {
 fun PlaceBody(model: AppModel, place: Place) {
     if (place.id.startsWith("transit:")) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 72.dp)) {
-            DepartureBoard(place)
+            DepartureBoard(place) { model.previewDeparture(it, returnTo = place) }
             IndoorPlaceActions(model, place, station = true)
         }
         return
     }
-    var tab by remember(place.id) { mutableIntStateOf(0) }
+    var tab by remember(place.id) { mutableStateOf("Overview") }
     val allowsGoogle = !AppSettings.noGoogle
     var related by remember(place.id, allowsGoogle) { mutableStateOf<Place?>(null) }
     LaunchedEffect(place.id, allowsGoogle) {
@@ -199,27 +233,51 @@ fun PlaceBody(model: AppModel, place: Place) {
     val canReview = mediaId != null && (mediaPlace.reviewCount ?: 1) > 0
     var reviews by remember(mediaId) { mutableStateOf<List<PlaceReview>?>(null) }
     var reviewsFailed by remember(mediaId) { mutableStateOf(false) }
+    var nextReviewPage by remember(mediaId) { mutableStateOf<String?>(null) }
+    var fetchingMore by remember(mediaId) { mutableStateOf(false) }
+    var histogram by remember(mediaId) { mutableStateOf(emptyList<Int>()) }
+    var extraPopularTimes by remember(mediaId) { mutableStateOf(emptyList<BusyDay>()) }
+    val reviewScope = rememberCoroutineScope()
     var attempt by remember(mediaId) { mutableIntStateOf(0) }
     var gallery by remember(mediaId) { mutableStateOf<List<String>?>(null) }
     var driveSeconds by remember(place.id) { mutableStateOf<Double?>(null) }
     fun mergeReviews(incoming: List<PlaceReview>) {
-        val merged = (incoming + reviews.orEmpty()).groupBy { Triple(it.author, it.stars, it.text) }.values.map { group ->
-            group.first().copy(photos = group.flatMap { it.photos }.distinct())
-        }
+        val merged = (reviews.orEmpty() + incoming).groupBy { Triple(it.author, it.stars, it.text) }.values.map { group ->
+            group.first().copy(photos = group.flatMap { it.photos }.distinct(),
+                avatar = group.firstNotNullOfOrNull { it.avatar }, likes = group.lastOrNull { it.likes != null }?.likes,
+                publishedMs = group.firstNotNullOfOrNull { it.publishedMs })
+        }.take(200)
         if (reviews != merged) reviews = merged
     }
     LaunchedEffect(mediaId, canReview, attempt) {
         if (mediaId == null || !canReview) return@LaunchedEffect
         reviewsFailed = false
+        delay(220)
         try {
-            mergeReviews(GoogleClient.shared.reviews(mediaId))
+            val page = GoogleClient.shared.reviewsPage(mediaId)
+            mergeReviews(page.reviews)
+            nextReviewPage = page.nextToken
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             reviewsFailed = true
         }
     }
+    LaunchedEffect(mediaId, mediaPlace.address) {
+        val address = mediaPlace.address?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        if (mediaId == null || mediaPlace.popularTimes.isNotEmpty()) return@LaunchedEffect
+        delay(700)
+        try {
+            extraPopularTimes = GoogleClient.shared.search("${mediaPlace.name} $address", mediaPlace.location, 1600.0, pages = 1)
+                .firstOrNull { it.featureId == mediaId }?.popularTimes.orEmpty()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Some places do not publish a visitation chart.
+        }
+    }
     LaunchedEffect(mediaId) {
+        if (mediaId != null) delay(220)
         gallery = if (mediaId == null) emptyList() else try {
             GoogleClient.shared.photos(mediaId)
         } catch (e: CancellationException) {
@@ -230,7 +288,7 @@ fun PlaceBody(model: AppModel, place: Place) {
     }
     val previews = if (AppSettings.noGoogle) place.photoUrls.filterNot(::isGooglePhoto) else (place.photoUrls + mediaPlace.photoUrls)
     val reviewPhotos = reviews.orEmpty().flatMap { it.photos }
-    val photos = (gallery.orEmpty() + reviewPhotos + previews).distinctBy { it.substringBeforeLast("=w") }
+    val photos = (previews + gallery.orEmpty() + reviewPhotos).distinctBy { it.substringBeforeLast("=w") }
     LaunchedEffect(place.id) {
         val from = model.userLatLng ?: return@LaunchedEffect
         val d = from.distanceTo(place.location)
@@ -255,41 +313,80 @@ fun PlaceBody(model: AppModel, place: Place) {
         }
         LaunchedEffect(model.showReviews, place.id) {
             if (model.showReviews == place.id && "Reviews" in mediaTabs) {
-                tab = mediaTabs.indexOf("Reviews")
+                tab = "Reviews"
                 model.showReviews = null
             }
         }
-        val selectedTab = mediaTabs.getOrNull(tab) ?: "Overview"
+        val selectedTab = tab.takeIf { it in mediaTabs } ?: "Overview"
+        if (selectedTab == "Overview") {
+            if (photos.isEmpty() && mediaId != null && gallery == null) {
+                Box(Modifier.fillMaxWidth().height(156.dp).clip(RoundedCornerShape(18.dp))
+                    .background(interfaceSurface), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                }
+            } else {
+                PhotoStrip(photos.take(6), 156.dp, opensViewer = true, streetView = place, model = model)
+            }
+        }
         if (mediaTabs.size > 1) {
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                mediaTabs.forEachIndexed { i, label ->
-                    SegmentedButton(selectedTab == label, { tab = i }, SegmentedButtonDefaults.itemShape(i, mediaTabs.size)) {
-                        Text(label, maxLines = 1, style = MaterialTheme.typography.labelMedium)
+            Surface(color = interfaceSurface, shape = RoundedCornerShape(22.dp)) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    mediaTabs.forEach { label ->
+                        val active = selectedTab == label
+                        val icon = when (label) {
+                            "Reviews" -> Icons.Filled.Star
+                            "Photos" -> Icons.Filled.PhotoLibrary
+                            "About" -> Icons.Filled.Info
+                            else -> Icons.Filled.Place
+                        }
+                        Row(Modifier.clip(CircleShape).background(if (active) interfaceAccent else Color.Transparent)
+                            .clickable { tab = label }.padding(horizontal = 12.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            val ink = if (active) interfaceOnAccent else secondaryText
+                            Icon(icon, null, tint = ink, modifier = Modifier.size(17.dp))
+                            Text(if (label == "Overview") kt("Overview", "Přehled") else if (label == "Photos") kt("Photos", "Fotky") else localizeLabel(label),
+                                color = ink, maxLines = 1, fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
             }
         }
         when (selectedTab) {
-            "Reviews" -> PlaceReviews(mediaPlace, reviews, reviewsFailed, retry = { attempt++ }, onReviews = { more ->
-                mergeReviews(more)
-                reviewsFailed = false
-            })
+            "Reviews" -> PlaceReviews(mediaPlace, reviews, histogram, reviewsFailed, fetchingMore,
+                retry = { attempt++ }, more = nextReviewPage?.let { token ->
+                    {
+                        if (mediaId != null && !fetchingMore) reviewScope.launch {
+                            fetchingMore = true
+                            try {
+                                val page = GoogleClient.shared.reviewsPage(mediaId, token)
+                                mergeReviews(page.reviews)
+                                nextReviewPage = page.nextToken?.takeIf { it != token }
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (_: Exception) {
+                                nextReviewPage = null
+                            } finally {
+                                fetchingMore = false
+                            }
+                        }
+                    }
+                }, onReviews = { page ->
+                    mergeReviews(page.reviews)
+                    if (page.histogram.isNotEmpty()) histogram = page.histogram
+                    reviewsFailed = false
+                })
             "Photos" -> PlacePhotos(mediaPlace, photos, loading = mediaId != null && gallery == null)
             "About" -> PlaceAbout(place)
             else -> {
-                if (photos.isNotEmpty()) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Photos", fontWeight = FontWeight.Bold, color = primaryText, fontSize = KType.headline,
-                        modifier = Modifier.weight(1f))
-                    TextButton({ tab = mediaTabs.indexOf("Photos") }) { Text("See all") }
-                }
-                PhotoStrip(photos.take(6), 156.dp, opensViewer = true, streetView = place, model = model)
-                PlaceOverview(place)
+                PlaceOverview(model, place)
+                if (allowsGoogle) PopularTimesCard(mediaPlace.popularTimes.ifEmpty { extraPopularTimes })
                 IndoorPlaceActions(model, place, station = isStop(place))
                 if (reviews.orEmpty().isNotEmpty() || canReview && !place.featuredReview.isNullOrBlank()) {
-                    Text("Reviews", fontWeight = FontWeight.Bold, color = primaryText, fontSize = KType.headline)
+                    Text(localizeLabel("Reviews"), fontWeight = FontWeight.Bold, color = primaryText, fontSize = KType.headline)
                     if (reviews.orEmpty().isEmpty()) place.featuredReview?.let { Text(it, color = secondaryText) }
                     reviews.orEmpty().take(3).forEach { ReviewRow(it) }
-                    TextButton({ tab = mediaTabs.indexOf("Reviews") }) { Text("See more reviews") }
+                    TextButton({ tab = "Reviews" }) { Text(localizeLabel("See more reviews")) }
                 }
             }
         }
@@ -304,31 +401,148 @@ fun PlaceBody(model: AppModel, place: Place) {
 }
 
 @Composable
-private fun PlaceReviews(place: Place, reviews: List<PlaceReview>?, failed: Boolean, retry: () -> Unit,
-                         onReviews: (List<PlaceReview>) -> Unit) {
+private fun PlaceReviews(
+    place: Place, reviews: List<PlaceReview>?, histogram: List<Int>, failed: Boolean, loadingMore: Boolean,
+    retry: () -> Unit, more: (() -> Unit)?, onReviews: (PublicPlaceReviews) -> Unit,
+) {
     val ctx = LocalContext.current
     var openWeb by remember(place.id) { mutableStateOf(false) }
+    var sort by remember(place.id) { mutableIntStateOf(0) }
+    var sorting by remember { mutableStateOf(false) }
+    val properties = reviews.orEmpty()
+    val shown = when (sort) {
+        1 -> properties.sortedByDescending { it.publishedMs ?: Long.MIN_VALUE }
+        2 -> properties.sortedByDescending { it.likes ?: -1 }
+        3 -> properties.sortedByDescending { it.stars ?: 0 }
+        4 -> properties.sortedBy { it.stars ?: 6 }
+        else -> properties
+    }
+    val sortLabels = listOf(kt("Most relevant", "Nejrelevantnější"), kt("Newest", "Nejnovější"),
+        kt("Most liked", "Nejvíce reakcí"), kt("Highest rated", "Nejlepší hodnocení"), kt("Lowest rated", "Nejhorší hodnocení"))
+    ReviewHistogram(place, properties, histogram)
     if (failed) {
-        Text("Reviews are temporarily unavailable.", color = secondaryText)
-        TextButton(retry) { Text("Try again") }
+        Text(localizeLabel("Reviews are temporarily unavailable."), color = secondaryText)
+        TextButton(retry) { Text(localizeLabel("Try again")) }
     } else if (reviews == null) {
         CircularProgressIndicator(Modifier.size(26.dp))
-    } else if (reviews.orEmpty().isEmpty()) {
-        Text(place.featuredReview ?: "No reviews returned for this place.", color = secondaryText)
+    } else if (properties.isEmpty()) {
+        Text(place.featuredReview ?: kt("No reviews returned for this place.", "Pro toto místo se recenze nenačetly."), color = secondaryText)
     }
-    reviews.orEmpty().forEach { ReviewRow(it) }
+    if (properties.isNotEmpty()) Box {
+        FilledTonalButton({ sorting = true }) {
+            Icon(Icons.Filled.Sort, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(sortLabels[sort])
+        }
+        DropdownMenu(sorting, { sorting = false }) {
+            sortLabels.forEachIndexed { index, label ->
+                val available = when(index) {
+                    1 -> properties.any { it.publishedMs != null }
+                    2 -> properties.any { it.likes != null }
+                    else -> true
+                }
+                DropdownMenuItem(text = { Text(label) }, onClick = { sort = index; sorting = false }, enabled = available)
+            }
+        }
+    }
+    shown.forEach { ReviewRow(it) }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextButton({ openWeb = true }) { Text("Read all reviews") }
-        TextButton({ ctx.open(place.shareUrl) }) { Text("Open Google Maps") }
+        Button({ if (more != null) more() else openWeb = true }, enabled = !loadingMore) {
+            if (loadingMore) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            else Text(kt("More reviews", "Další recenze"))
+        }
+        TextButton({ ctx.open(place.shareUrl) }) { Text(localizeLabel("Open Google Maps")) }
     }
     if (openWeb && !AppSettings.noGoogle) GoogleReviewsPage(place, onReviews) { openWeb = false }
+}
+
+@Composable
+private fun ReviewHistogram(place: Place, reviews: List<PlaceReview>, histogram: List<Int>) {
+    val loaded = reviews.mapNotNull { it.stars?.takeIf { stars -> stars in 1..5 } }
+    val complete = histogram.size == 5 && histogram.any { it > 0 }
+    val counts = if (complete) histogram else (1..5).map { star -> loaded.count { it == star } }
+    if (place.rating == null && counts.all { it == 0 }) return
+    val max = (counts.maxOrNull() ?: 0).coerceAtLeast(1)
+    val starColor = Color(if (LocalDark.current) 0xFFFFC55E else 0xFF985300)
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(interfaceGround).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(kt("Ratings", "Hodnocení"), fontWeight = FontWeight.Bold, color = primaryText)
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                place.rating?.let { Text(String.format(Locale.getDefault(), "%.1f", it), fontSize = 31.sp,
+                    fontWeight = FontWeight.ExtraBold, color = primaryText) }
+                Icon(Icons.Filled.Star, null, tint = starColor, modifier = Modifier.size(20.dp))
+                place.reviewCount?.let { Text(Fmt.count(it), color = secondaryText, fontSize = KType.caption) }
+            }
+            if (max > 0 && counts.any { it > 0 }) Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                for (star in 5 downTo 1) {
+                    val count = counts[star - 1]
+                    Row(Modifier.semantics { contentDescription = "$star ★ · ${Fmt.count(count)}" },
+                        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("$star", fontSize = KType.caption, color = secondaryText)
+                        Box(Modifier.weight(1f).height(5.dp).clip(CircleShape).background(starColor.copy(alpha = 0.15f))) {
+                            Box(Modifier.fillMaxWidth(count.toFloat() / max).fillMaxHeight().background(starColor))
+                        }
+                    }
+                }
+            }
+        }
+        if (!complete && loaded.isNotEmpty()) Text(kt("Loaded reviews", "Načtené recenze") + " · ${loaded.size}",
+            color = secondaryText, fontSize = KType.caption)
+    }
+}
+
+@Composable
+private fun PopularTimesCard(days: List<BusyDay>) {
+    if (days.isEmpty()) return
+    val today = java.time.LocalDate.now().dayOfWeek.value
+    var day by remember(days) { mutableIntStateOf(days.firstOrNull { it.dayOfWeek == today }?.dayOfWeek ?: days.first().dayOfWeek) }
+    var selectedHour by remember(day) { mutableStateOf<Int?>(null) }
+    val hours = days.firstOrNull { it.dayOfWeek == day }?.hours.orEmpty().associate { it.hour to it.percent }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(interfaceGround).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text(kt("Popular times", "Obvyklá návštěvnost"), fontWeight = FontWeight.Bold, color = primaryText)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            days.forEach { item ->
+                val label = java.time.DayOfWeek.of(item.dayOfWeek).getDisplayName(java.time.format.TextStyle.SHORT, Locale.getDefault())
+                FilterChip(selected = item.dayOfWeek == day, onClick = { day = item.dayOfWeek }, label = { Text(label) })
+            }
+        }
+        Row(Modifier.fillMaxWidth().height(64.dp), verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            for (hour in 0..23) {
+                val value = hours[hour]
+                Box(Modifier.weight(1f).fillMaxHeight().then(if (value == null) Modifier else
+                    Modifier.semantics { contentDescription = "$hour:00 · $value%" }.clickable { selectedHour = hour }),
+                    contentAlignment = Alignment.BottomCenter) {
+                    if (value != null) Box(Modifier.fillMaxWidth().height((2 + value.coerceIn(0, 100) * 0.60f).dp)
+                        .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                        .background(interfaceAccent.copy(alpha = if (selectedHour == hour) 1f else 0.65f)))
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            listOf("0:00", "6:00", "12:00", "18:00", "24:00").forEach { Text(it, color = secondaryText, fontSize = KType.caption2) }
+        }
+        selectedHour?.let { Text("$it:00 · ${hours[it]} %", color = primaryText, fontSize = KType.caption) }
+    }
 }
 
 @Composable
 private fun ReviewRow(review: PlaceReview) {
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(interfaceGround).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        Text(review.author, fontWeight = FontWeight.Bold, color = primaryText, fontSize = KType.subheadline)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            Box(Modifier.size(38.dp).clip(CircleShape).background(interfaceTonal), contentAlignment = Alignment.Center) {
+                if (review.avatar != null) AsyncImage(review.avatar, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                else Text(review.author.firstOrNull()?.uppercase().orEmpty(), fontWeight = FontWeight.Bold, color = interfaceOnTonal)
+            }
+            Text(review.author, fontWeight = FontWeight.Bold, color = primaryText, fontSize = KType.subheadline, modifier = Modifier.weight(1f))
+            review.likes?.let { likes ->
+                Icon(Icons.Outlined.ThumbUp, kt("Likes", "Reakce"), tint = secondaryText, modifier = Modifier.size(16.dp))
+                Text(Fmt.count(likes), fontSize = KType.caption, color = secondaryText)
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             review.stars?.let { rating ->
                 val stars = rating.coerceIn(0, 5)
@@ -363,8 +577,8 @@ private fun PlacePhotos(place: Place, photos: List<String>, loading: Boolean) {
             repeat(3 - urls.size) { Spacer(Modifier.weight(1f)) }
         }
     }
-    if (photos.isEmpty() && !loading) Text("No photos returned for this place.", color = secondaryText)
-    if (place.featureId != null && !AppSettings.noGoogle) TextButton({ ctx.open(place.shareUrl) }) { Text("More photos on Google Maps") }
+    if (photos.isEmpty() && !loading) Text(localizeLabel("No photos returned for this place."), color = secondaryText)
+    if (place.featureId != null && !AppSettings.noGoogle) TextButton({ ctx.open(place.shareUrl) }) { Text(localizeLabel("More photos on Google Maps")) }
     viewing?.takeIf { it in photos.indices }?.let { PhotoViewer(photos, it) { viewing = null } }
 }
 
@@ -387,7 +601,7 @@ private fun PlaceActions(model: AppModel, place: Place, driveSeconds: Double?) {
             Row(Modifier.height(40.dp).clip(CircleShape).background(interfaceGround).clickable { more = true }.padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Icon(Icons.Filled.MoreHoriz, null, tint = interfaceAccentText, modifier = Modifier.size(18.dp))
-                Text("More", fontSize = KType.subheadline, fontWeight = FontWeight.SemiBold, color = interfaceAccentText)
+                Text(localizeLabel("More"), fontSize = KType.subheadline, fontWeight = FontWeight.SemiBold, color = interfaceAccentText)
             }
             DropdownMenu(more, { more = false }) {
                 fun item(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, f: () -> Unit) = @Composable {
@@ -400,7 +614,7 @@ private fun PlaceActions(model: AppModel, place: Place, driveSeconds: Double?) {
                 item("Add shortcut", Icons.Filled.AddLocationAlt) { model.nameNewShortcut(place) }()
                 place.address?.let { a -> item("Copy address", Icons.Filled.ContentPaste) { ctx.copy("${place.name}, $a") }() }
                 HorizontalDivider()
-                Text("Open in", fontSize = KType.caption, color = secondaryText, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                Text(localizeLabel("Open in"), fontSize = KType.caption, color = secondaryText, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
                 for (app in OtherApp.entries) item(app.label, Icons.Filled.Map) { ctx.open(app.url(place)) }()
             }
         }
@@ -416,22 +630,22 @@ private fun isStop(p: Place): Boolean {
 }
 
 @Composable
-private fun PlaceOverview(place: Place) {
+private fun PlaceOverview(model: AppModel, place: Place) {
     val ctx = LocalContext.current
     var hoursOpen by remember(place.id) { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         place.editorialSummary?.let { s -> Copyable(s) { Text(s, color = primaryText) } }
         place.address?.let { PlaceInfoCard(Icons.Outlined.Place, "Address", it) }
-        if (isStop(place)) DepartureBoard(place)
+        if (isStop(place)) DepartureBoard(place) { model.previewDeparture(it, returnTo = place) }
         if (place.hours.isNotEmpty()) OpeningHoursCard(place, hoursOpen) { hoursOpen = !hoursOpen }
         place.phone?.let { phone -> PlaceInfoCard(Icons.Outlined.Phone, "Phone", phone, telUrl(phone)?.let { url -> { ctx.open(url) } }) }
         place.website?.let { site ->
-            PlaceInfoCard(Icons.Filled.Language, "Website", site.removePrefix("https://").removePrefix("http://"),
+            PlaceInfoCard(Icons.Filled.Language, localizeLabel("Website"), site.removePrefix("https://").removePrefix("http://"),
                 webUrl(site)?.let { url -> { ctx.open(url) } })
         }
         place.featuredReview?.let { r ->
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Review", fontSize = KType.headline, fontWeight = FontWeight.SemiBold, color = primaryText)
+                Text(localizeLabel("Review"), fontSize = KType.headline, fontWeight = FontWeight.SemiBold, color = primaryText)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Icon(Icons.Filled.AccountCircle, null, tint = secondaryText, modifier = Modifier.size(28.dp))
                     Text("“$r”", fontSize = KType.subheadline, color = primaryText)
@@ -477,7 +691,7 @@ internal fun OpeningHoursCard(place: Place, expanded: Boolean, toggle: () -> Uni
                         Icon(Icons.Outlined.Schedule, null, tint = accent, modifier = Modifier.size(21.dp))
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("Opening hours", fontWeight = FontWeight.SemiBold, color = primaryText)
+                        Text(localizeLabel("Opening hours"), fontWeight = FontWeight.SemiBold, color = primaryText)
                         StatusText(place)
                     }
                     Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
@@ -529,7 +743,7 @@ fun InfoRow(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String)
 
 /** Next departures at a stop from Transitous, refreshed every 30 seconds while it's open. */
 @Composable
-fun DepartureBoard(place: Place) {
+fun DepartureBoard(place: Place, onDeparture: ((Transitous.Departure) -> Unit)? = null) {
     var board by remember(place.id) { mutableStateOf<Transitous.Board?>(null) }
     var loaded by remember(place.id) { mutableStateOf(false) }
     LaunchedEffect(place.id) {
@@ -543,11 +757,12 @@ fun DepartureBoard(place: Place) {
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Departures", fontSize = KType.headline, fontWeight = FontWeight.SemiBold, color = primaryText)
+        Text(localizeLabel("Departures"), fontSize = KType.headline, fontWeight = FontWeight.SemiBold, color = primaryText)
         val b = board
         when {
             b != null -> {
                 for (d in b.departures.take(8)) Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                    .then(if (onDeparture != null && d.tripId != null) Modifier.tap { onDeparture(d) } else Modifier)
                     .background(interfaceSurface).padding(horizontal = 10.dp, vertical = 7.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     LineChip(TransitLeg(isWalk = false, mode = d.mode, line = d.line, color = d.color, textColor = d.textColor))
@@ -555,10 +770,13 @@ fun DepartureBoard(place: Place) {
                         Text(d.headsign, fontSize = KType.subheadline, color = primaryText, maxLines = 2,
                             overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
                         d.platform?.takeIf(String::isNotBlank)?.let {
-                            Text("Platform $it", fontSize = KType.caption, color = secondaryText)
+                            Text(kt("Platform $it", "Nástupiště $it"), fontSize = KType.caption, color = secondaryText)
                         }
                     }
                     Column(horizontalAlignment = Alignment.End) {
+                        if (onDeparture != null && d.tripId != null) {
+                            Icon(Icons.Filled.Map, "Show service on map", Modifier.size(16.dp), tint = interfaceAccentText)
+                        }
                         Text(countdown(d.time), fontSize = KType.subheadline, fontWeight = FontWeight.SemiBold,
                             color = if (d.delayMinutes != null) Vela.open else primaryText)
                         d.delayMinutes?.takeIf { it != 0 }?.let { late ->
@@ -567,12 +785,12 @@ fun DepartureBoard(place: Place) {
                         }
                     }
                 }
-                Text("Live times in green · Transitous", fontSize = KType.caption, color = secondaryText)
+                Text(localizeLabel("Live times in green · Transitous"), fontSize = KType.caption, color = secondaryText)
             }
-            loaded -> Text("No departures found here.", fontSize = KType.subheadline, color = secondaryText)
+            loaded -> Text(localizeLabel("No departures found here."), fontSize = KType.subheadline, color = secondaryText)
             else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                Text("Loading departures…", color = secondaryText)
+                Text(localizeLabel("Loading departures…"), color = secondaryText)
             }
         }
     }
@@ -615,12 +833,48 @@ fun PhotoViewer(urls: List<String>, start: Int, close: () -> Unit) {
     FullScreenDialog(close) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             val pager = rememberPagerState(start) { urls.size }
-            HorizontalPager(pager, Modifier.fillMaxSize()) { i ->
-                AsyncImage(largePhoto(urls[i]), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+            var zoom by remember { mutableFloatStateOf(1f) }
+            var translation by remember { mutableStateOf(Offset.Zero) }
+            LaunchedEffect(pager.settledPage) {
+                zoom = 1f
+                translation = Offset.Zero
+            }
+            HorizontalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = zoom <= 1f) { i ->
+                AsyncImage(largePhoto(urls[i]), null, contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize().pointerInput(i) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            do {
+                                val event = awaitPointerEvent()
+                                val centroid = event.calculateCentroid()
+                                if (centroid.isSpecified && event.changes.any { it.pressed } &&
+                                    (event.changes.count { it.pressed } >= 2 || zoom > 1f)) {
+                                    val next = (zoom * event.calculateZoom()).coerceIn(1f, 5f)
+                                    val pivot = centroid - Offset(size.width / 2f, size.height / 2f)
+                                    val position = translation * (next / zoom) + pivot * (1f - next / zoom) + event.calculatePan()
+                                    val x = size.width * (next - 1f) / 2f
+                                    val y = size.height * (next - 1f) / 2f
+                                    translation = Offset(position.x.coerceIn(-x, x), position.y.coerceIn(-y, y))
+                                    zoom = next
+                                    event.changes.forEach { it.consume() }
+                                }
+                            } while (event.changes.any { it.pressed })
+                        }
+                    }.pointerInput(i) {
+                        detectTapGestures(onDoubleTap = {
+                            zoom = if (zoom > 1f) 1f else 2.5f
+                            translation = Offset.Zero
+                        })
+                    }.graphicsLayer {
+                        if (i == pager.settledPage) {
+                            scaleX = zoom; scaleY = zoom
+                            translationX = translation.x; translationY = translation.y
+                        }
+                    })
             }
             Box(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(16.dp).size(40.dp).clip(CircleShape)
                 .background(Color.White.copy(alpha = 0.2f)).clickable(onClick = close), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.Close, "Close", tint = Color.White)
+                Icon(Icons.Filled.Close, localizeLabel("Close"), tint = Color.White)
             }
         }
     }
@@ -661,7 +915,7 @@ fun StreetViewTile(model: AppModel, place: Place, height: Dp) {
             }
         }
     } else {
-        Box(Modifier.size(height * 1.4f, height).clip(RoundedCornerShape(10.dp)).background(Vela.tonal(LocalDark.current))
+        Box(Modifier.size(height * 1.4f, height).clip(RoundedCornerShape(10.dp)).background(interfaceTonal)
             .clickable {
                 val at = "${place.location.lat.plain()},${place.location.lng.plain()}"
                 ctx.open("https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=$at")
@@ -744,18 +998,18 @@ fun ReviewsList(place: Place) {
         } else if (!failed) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                Text("Loading reviews…", color = secondaryText)
+                Text(localizeLabel("Loading reviews…"), color = secondaryText)
             }
         }
         if ((failed || list?.isEmpty() == true) && place.featuredReview != null) {
             Text("“${place.featuredReview}”", fontSize = KType.subheadline, color = primaryText)
         }
-        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(CircleShape).background(Vela.tonal(dark))
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(CircleShape).background(interfaceTonal)
             .clickable { ctx.open(GoogleReviews.webUrl(place)) }, horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.RateReview, null, tint = Vela.onTonal(dark), modifier = Modifier.size(20.dp))
+            Icon(Icons.Filled.RateReview, null, tint = interfaceOnTonal, modifier = Modifier.size(20.dp))
             Text(if (list?.isNotEmpty() == true) "More reviews on Google" else "Read the reviews on Google", fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold, color = Vela.onTonal(dark))
+                fontWeight = FontWeight.SemiBold, color = interfaceOnTonal)
         }
     }
 }

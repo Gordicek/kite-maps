@@ -25,6 +25,13 @@ class RoadStartTests {
         assertSame(alternative, assertIs<RoadStart.Follow>(plan.roadStart(here)).route)
     }
 
+    @Test fun startUsesAShortRouteFromTheCurrentGpsInsteadOfAFarawayPreviewOrigin() {
+        val plan = DirectionsState(end, mode = TravelMode.DRIVE, routes = mapOf(TravelMode.DRIVE to listOf(direct)))
+        assertIs<RoadStart.FindRoute>(plan.roadStart(via.location))
+        // The router may snap a fresh request to a remote access road.
+        assertIs<RoadStart.Follow>(plan.copy(routeOrigins = mapOf(TravelMode.DRIVE to via.location)).roadStart(via.location))
+    }
+
     @Test fun goCanBeRequestedBeforeTheRoadRouterHasAnswered() {
         val plan = DirectionsState(end, mode = TravelMode.DRIVE, startRequested = true)
         assertIs<RoadStart.FindRoute>(plan.roadStart(here))
@@ -64,4 +71,26 @@ class RoadStartTests {
         assertEquals(listOf(end, start, via, replacement), reversed.replacingDestination(replacement).orderedPlaces())
     }
 
+    @Test fun liveStartUsesTheRouteThatJustArrivedEvenWhenGpsMovedDuringTheRequest() {
+        val driving = TravelMode.DRIVE
+        val plan = DirectionsState(end, mode = driving, startRequested = true,
+            selected = 1, loading = setOf(driving), routes = mapOf(driving to listOf(direct, alternative)))
+        val from = LatLng(50.095, 14.43)
+        val moved = LatLng(50.101, 14.43)
+        val ready = plan.withRoadResult(driving, listOf(direct), from, "error", shouldStart = true, isLiveStart = true)
+        assertIs<RoadStart.WaitForLocation>(ready.roadStart(null))
+        assertSame(direct, assertIs<RoadStart.Follow>(ready.roadStart(moved)).route)
+        assertIs<RoadStart.FindRoute>(ready.copy(startRequested = false).roadStart(moved))
+    }
+
+    @Test fun aFailedLiveStartExposesTheErrorInsteadOfKeepingTheStalePreview() {
+        val driving = TravelMode.DRIVE
+        val plan = DirectionsState(end, mode = driving, startRequested = true,
+            loading = setOf(driving), routes = mapOf(driving to listOf(direct)))
+        val failed = plan.withRoadResult(driving, emptyList(), here, "Could not connect", shouldStart = true, isLiveStart = true)
+        assertNull(failed.route)
+        assertNull(failed.readyToStartRouteId)
+        assertEquals(false, failed.startRequested)
+        assertEquals("Could not connect", failed.errors[driving])
+    }
 }

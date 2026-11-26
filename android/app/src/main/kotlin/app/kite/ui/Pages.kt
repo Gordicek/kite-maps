@@ -2,6 +2,11 @@
 
 package app.kite.ui
 
+import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.Brush
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,6 +38,7 @@ import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +56,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.kite.R
 import app.kite.*
 import app.kite.core.*
 import kotlinx.coroutines.Dispatchers
@@ -68,7 +75,8 @@ fun SavedPage(model: AppModel) {
     val ctx = LocalContext.current
     var folderId by remember { mutableStateOf<String?>(null) }
     val folder = s.placeFolders.firstOrNull { it.id == folderId }
-    val places = if (folder == null) s.saved else s.saved.filter { it.id in folder.members }
+    val folderMembers = s.placeFolders.flatMap { it.members }.toSet()
+    val places = s.saved.filter { if (folder == null) it.id !in folderMembers else it.id in folder.members }
     var renaming by remember { mutableStateOf<Place?>(null) }
     var assigning by remember { mutableStateOf<Place?>(null) }
     var editingFolder by remember { mutableStateOf(false) }
@@ -90,11 +98,11 @@ fun SavedPage(model: AppModel) {
             verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (folder != null) IconButton({ folderId = null }) { Icon(Icons.Filled.Close, "Back to Saved") }
-                Text(folder?.name ?: "Saved", fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = primaryText,
+                Text(folder?.name ?: stringResource(R.string.saved_title), fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = primaryText,
                     modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
                 if (folder != null) {
                     IconButton({ folderName = folder.name; editingFolder = true }) { Icon(Icons.Filled.Edit, "Rename list") }
-                    IconButton({ removingFolder = true }) { Icon(Icons.Filled.Delete, "Delete list") }
+                    IconButton({ removingFolder = true }) { Icon(Icons.Filled.Delete, localizeLabel("Delete list")) }
                 }
             }
             if (folder == null) {
@@ -109,16 +117,21 @@ fun SavedPage(model: AppModel) {
                     }
                 }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Lists", fontSize = KType.headline, fontWeight = FontWeight.Bold, color = primaryText)
-                    TextButton({ folderName = ""; editingFolder = true }) { Text("New list") }
+                    Text(localizeLabel("Lists"), fontSize = KType.headline, fontWeight = FontWeight.Bold, color = primaryText)
+                    TextButton({ folderName = ""; editingFolder = true }) { Text(localizeLabel("New list")) }
                 }
                 s.placeFolders.forEach { list ->
-                    ListItem(headlineContent = { Text(list.name) }, leadingContent = { Icon(Icons.Filled.Folder, null) },
+                    ListItem(headlineContent = { Text(list.name) }, leadingContent = {
+                        Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(interfaceTonal),
+                            contentAlignment = Alignment.Center) {
+                            Icon(Icons.Filled.FolderSpecial, null, tint = interfaceOnTonal, modifier = Modifier.size(24.dp))
+                        }
+                    },
                         supportingContent = { Text("${list.members.size} saved places") },
                         modifier = Modifier.clip(RoundedCornerShape(18.dp)).tap { folderId = list.id })
                 }
                 if (s.savedPlans.isNotEmpty()) {
-                    Text("Saved routes", fontSize = KType.headline, fontWeight = FontWeight.Bold, color = primaryText)
+                    Text(localizeLabel("Saved routes"), fontSize = KType.headline, fontWeight = FontWeight.Bold, color = primaryText)
                     s.savedPlans.forEach { plan ->
                         ListItem(
                             headlineContent = { Text(plan.name) },
@@ -145,8 +158,8 @@ fun SavedPage(model: AppModel) {
                                                 if (armed) "Cancel departure reminder" else "Remind me five minutes before leaving")
                                         }
                                     }
-                                    IconButton({ ctx.share(plan.shareText()) }) { Icon(Icons.Filled.Share, "Share route") }
-                                    IconButton({ removePlan = plan }) { Icon(Icons.Filled.Delete, "Delete route") }
+                                    IconButton({ ctx.share(plan.shareText()) }) { Icon(Icons.Filled.Share, localizeLabel("Share route")) }
+                                    IconButton({ removePlan = plan }) { Icon(Icons.Filled.Delete, localizeLabel("Delete route")) }
                                 }
                             },
                             modifier = Modifier.clip(RoundedCornerShape(18.dp)).tap { model.openSavedPlan(plan) })
@@ -155,9 +168,9 @@ fun SavedPage(model: AppModel) {
             }
             if (places.isEmpty()) {
                 Column(Modifier.fillMaxWidth().padding(vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Icon(Icons.Outlined.BookmarkBorder, null, tint = Vela.muted(dark), modifier = Modifier.size(44.dp))
+                    Icon(Icons.Outlined.BookmarkBorder, null, tint = secondaryText, modifier = Modifier.size(44.dp))
                     Text(if (folder == null) "No saved places yet" else "This list is empty", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = primaryText)
-                    Text(if (folder == null) "Open any place and tap Save to keep it here." else "Hold a saved place and choose Lists to add it here.", fontSize = KType.body, color = Vela.muted(dark), textAlign = TextAlign.Center)
+                    Text(if (folder == null) "Open any place and tap Save to keep it here." else "Hold a saved place and choose Lists to add it here.", fontSize = KType.body, color = secondaryText, textAlign = TextAlign.Center)
                 }
             } else {
                 Column(Modifier.clip(RoundedCornerShape(24.dp)).background(interfaceSurface)) {
@@ -168,20 +181,21 @@ fun SavedPage(model: AppModel) {
                                 0 -> { newName = p.name; renaming = p }
                                 1 -> if (folder == null) s.removeSaved(p.id) else s.toggleFolderMember(folder.id, p.id)
                                 2 -> assigning = p
+                                3 -> model.nameNewShortcut(p)
                             }
                         }, ::show, ::go)
                     }
                 }
-                Text("Hold a place to manage it or add it to lists.", fontSize = KType.subheadline, color = Vela.muted(dark), modifier = Modifier.padding(horizontal = 4.dp))
+                Text(localizeLabel("Hold a place to manage it or add it to lists."), fontSize = KType.subheadline, color = secondaryText, modifier = Modifier.padding(horizontal = 4.dp))
             }
         }
         KiteDock(model, Modifier.align(Alignment.BottomCenter))
     }
     renaming?.let { p ->
-        AlertDialog(onDismissRequest = { renaming = null }, title = { Text("Rename") },
-            text = { OutlinedTextField(newName, { newName = it }, singleLine = true, label = { Text("Name") }) },
-            confirmButton = { TextButton({ s.renameSaved(p.id, newName); renaming = null }) { Text("Save") } },
-            dismissButton = { TextButton({ renaming = null }) { Text("Cancel") } })
+        AlertDialog(onDismissRequest = { renaming = null }, title = { Text(localizeLabel("Rename")) },
+            text = { OutlinedTextField(newName, { newName = it }, singleLine = true, label = { Text(localizeLabel("Name")) }) },
+            confirmButton = { TextButton({ s.renameSaved(p.id, newName); renaming = null }) { Text(localizeLabel("Save")) } },
+            dismissButton = { TextButton({ renaming = null }) { Text(localizeLabel("Cancel")) } })
     }
     assigning?.let { place ->
         AlertDialog(onDismissRequest = { assigning = null }, title = { Text("Lists for ${place.name}") }, text = {
@@ -193,31 +207,31 @@ fun SavedPage(model: AppModel) {
                     }
                 }
             }
-        }, confirmButton = { TextButton({ assigning = null }) { Text("Done") } },
-            dismissButton = { TextButton({ folderName = ""; editingFolder = true }) { Text("New list") } })
+        }, confirmButton = { TextButton({ assigning = null }) { Text(localizeLabel("Done")) } },
+            dismissButton = { TextButton({ folderName = ""; editingFolder = true }) { Text(localizeLabel("New list")) } })
     }
     if (editingFolder) AlertDialog(
         onDismissRequest = { editingFolder = false },
         title = { Text(if (folder == null || assigning != null) "New list" else "Rename list") },
-        text = { OutlinedTextField(folderName, { folderName = it }, singleLine = true, label = { Text("Name") }) },
+        text = { OutlinedTextField(folderName, { folderName = it }, singleLine = true, label = { Text(localizeLabel("Name")) }) },
         confirmButton = { TextButton({
             val assigned = assigning
             s.placeFolders = if (folder == null || assigned != null) {
                 s.placeFolders + PlaceFolder(folderName.trim(), setOfNotNull(assigned?.id))
             } else s.placeFolders.map { if (it.id == folder.id) it.copy(name = folderName.trim()) else it }
             editingFolder = false
-        }, enabled = folderName.isNotBlank()) { Text("Save") } },
-        dismissButton = { TextButton({ editingFolder = false }) { Text("Cancel") } })
+        }, enabled = folderName.isNotBlank()) { Text(localizeLabel("Save")) } },
+        dismissButton = { TextButton({ editingFolder = false }) { Text(localizeLabel("Cancel")) } })
     if (removingFolder && folder != null) AlertDialog(
         onDismissRequest = { removingFolder = false },
         title = { Text("Delete ${folder.name}?") },
-        text = { Text("Its places will still be in Saved.") },
+        text = { Text(localizeLabel("Its places will still be in Saved.")) },
         confirmButton = { TextButton({
             s.placeFolders = s.placeFolders.filter { it.id != folder.id }
             removingFolder = false
             folderId = null
-        }) { Text("Delete list") } },
-        dismissButton = { TextButton({ removingFolder = false }) { Text("Cancel") } })
+        }) { Text(localizeLabel("Delete list")) } },
+        dismissButton = { TextButton({ removingFolder = false }) { Text(localizeLabel("Cancel")) } })
     removePlan?.let { plan ->
         AlertDialog(onDismissRequest = { removePlan = null }, title = { Text("Delete ${plan.name}?") },
             confirmButton = { TextButton({
@@ -225,8 +239,8 @@ fun SavedPage(model: AppModel) {
                 s.savedPlans = s.savedPlans.filter { it.id != plan.id }
                 removePlan = null
             }) {
-                Text("Delete route")
-            } }, dismissButton = { TextButton({ removePlan = null }) { Text("Cancel") } })
+                Text(localizeLabel("Delete route"))
+            } }, dismissButton = { TextButton({ removePlan = null }) { Text(localizeLabel("Cancel")) } })
     }
     BackHandler { if (folderId != null) folderId = null else model.tab = AppTab.MAP }
 }
@@ -246,7 +260,7 @@ private fun RowScope.MineTile(model: AppModel, icon: ImageVector, color: Color, 
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(title, fontSize = 21.sp, fontWeight = FontWeight.Bold, color = primaryText, modifier = Modifier.weight(1f))
-                Text(place?.let(distance) ?: (if (place == null) "Set" else ""), fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Vela.muted(dark))
+                Text(place?.let(distance) ?: (if (place == null) "Set" else ""), fontSize = 16.sp, fontWeight = FontWeight.Medium, color = secondaryText)
             }
         }
         DropdownMenu(menu, { menu = false }) {
@@ -256,7 +270,7 @@ private fun RowScope.MineTile(model: AppModel, icon: ImageVector, color: Color, 
     }
 }
 
-/** [edit]: 0 rename, 1 remove, 2 manage lists. */
+/** [edit]: rename, remove, manage lists, or add a shortcut. */
 @Composable
 private fun SavedRow(p: Place, icon: ImageVector, color: Color, distance: String?, edit: ((Int) -> Unit)?, show: (Place) -> Unit, go: (Place) -> Unit) {
     val dark = LocalDark.current
@@ -271,17 +285,19 @@ private fun SavedRow(p: Place, icon: ImageVector, color: Color, distance: String
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(p.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = primaryText, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    (distance ?: p.address ?: p.category)?.let { Text(it, fontSize = 16.sp, color = Vela.muted(dark), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    (distance ?: p.address ?: p.category)?.let { Text(it, fontSize = 16.sp, color = secondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 }
             }
-            Box(Modifier.size(60.dp).clip(CircleShape).background(Vela.accent(dark)).tap { go(p) }, contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.Navigation, "Go to ${p.name}", tint = Vela.onAccent(dark), modifier = Modifier.size(28.dp))
+            Box(Modifier.size(60.dp).clip(CircleShape).background(interfaceAccent).tap { go(p) }, contentAlignment = Alignment.Center) {
+                Icon(Icons.Filled.Navigation, "Go to ${p.name}", tint = interfaceOnAccent, modifier = Modifier.size(28.dp))
             }
         }
         if (edit != null) DropdownMenu(menu, { menu = false }) {
-            DropdownMenuItem(text = { Text("Rename") }, leadingIcon = { Icon(Icons.Filled.Edit, null) }, onClick = { menu = false; edit(0) })
-            DropdownMenuItem(text = { Text("Lists") }, leadingIcon = { Icon(Icons.Filled.Folder, null) }, onClick = { menu = false; edit(2) })
-            DropdownMenuItem(text = { Text("Remove") }, leadingIcon = { Icon(Icons.Filled.Delete, null) }, onClick = { menu = false; edit(1) })
+            DropdownMenuItem(text = { Text(localizeLabel("Rename")) }, leadingIcon = { Icon(Icons.Filled.Edit, null) }, onClick = { menu = false; edit(0) })
+            DropdownMenuItem(text = { Text(localizeLabel("Lists")) }, leadingIcon = { Icon(Icons.Filled.Folder, null) }, onClick = { menu = false; edit(2) })
+            DropdownMenuItem(text = { Text(localizeLabel("Add shortcut")) }, leadingIcon = { Icon(Icons.Filled.AddLocationAlt, null) },
+                onClick = { menu = false; edit(3) })
+            DropdownMenuItem(text = { Text(localizeLabel("Remove")) }, leadingIcon = { Icon(Icons.Filled.Delete, null) }, onClick = { menu = false; edit(1) })
         }
     }
 }
@@ -289,11 +305,15 @@ private fun SavedRow(p: Place, icon: ImageVector, color: Color, distance: String
 // Settings
 
 private enum class SettingsScreen(val title: String) {
-    MENU("Settings"), DRIVING("Voice & driving"), CAMERAS("Cameras & speed"), WAZE("Road alerts"), LIVECAMS("Live cameras"), MAP("Map & display"),
-    ROUTING("Route engines"), TRANSIT("Public transport"), OFFLINE("Offline maps"), PLACES("My places"), PRIVACY("Privacy"), ABOUT("About"), DIAGNOSTICS("Diagnostics");
+    MENU("Settings"), APPEARANCE("Appearance"), ICON_DESIGN("Map and navigation design"), DRIVING("Navigation"), CAMERAS("Cameras & speed"), WAZE("Road alerts"), LIVECAMS("Live cameras"), MAP("Map & layers"),
+    ROUTING("Route engines"), TRANSIT("Transit & walking"), OFFLINE("Offline maps"), PLACES("My places"), PRIVACY("Privacy"), ABOUT("About"), DIAGNOSTICS("Diagnostics");
 
     /** Where the back button goes. */
-    val parent: SettingsScreen get() = if (this == DIAGNOSTICS) ABOUT else MENU
+    val parent: SettingsScreen get() = when (this) {
+        DIAGNOSTICS -> ABOUT
+        ICON_DESIGN -> APPEARANCE
+        else -> MENU
+    }
 }
 
 /** The Settings page of the dock: a short menu like Waze's, each row opening a page with its switches. */
@@ -306,37 +326,53 @@ fun SettingsPage(model: AppModel) {
         "mapsettings" -> SettingsScreen.MAP
         else -> SettingsScreen.MENU
     }) }
+    LaunchedEffect(model.offlineSettingsRequested) {
+        if (model.offlineSettingsRequested) {
+            screen = SettingsScreen.OFFLINE
+            model.offlineSettingsRequested = false
+        }
+    }
+    val scrollMemory = rememberSaveableStateHolder()
     Box(Modifier.fillMaxSize().background(interfaceGround)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             if (screen == SettingsScreen.MENU) {
-                Text("Settings", fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, color = primaryText, modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 8.dp))
+                Text(stringResource(R.string.settings_title), fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, color = primaryText, modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 8.dp))
             } else {
                 Box(Modifier.fillMaxWidth().height(56.dp)) {
                     Row(Modifier.align(Alignment.CenterStart).padding(start = 4.dp).clip(RoundedCornerShape(8.dp)).tap { screen = screen.parent }
                         .padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Vela.accentText(dark))
-                        Text(screen.parent.title, fontSize = KType.body, color = Vela.accentText(dark), modifier = Modifier.padding(start = 4.dp))
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, localizeLabel("Back"), tint = interfaceAccentText)
                     }
-                    Text(screen.title, fontSize = KType.headline, fontWeight = FontWeight.SemiBold, color = primaryText, modifier = Modifier.align(Alignment.Center))
+                    Text(localizeLabel(screen.title), fontSize = KType.headline, fontWeight = FontWeight.SemiBold,
+                        color = primaryText, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.align(Alignment.Center).padding(horizontal = 54.dp))
                 }
             }
             AnimatedContent(screen, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "settings") { sc ->
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 120.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    when (sc) {
-                        SettingsScreen.MENU -> SettingsMenu { screen = it }
-                        SettingsScreen.DRIVING -> DrivingSettings()
-                        SettingsScreen.CAMERAS -> CameraSettings()
-                        SettingsScreen.WAZE -> WazeSettings()
-                        SettingsScreen.LIVECAMS -> LiveCamSettings()
-                        SettingsScreen.MAP -> MapSettings()
-                        SettingsScreen.ROUTING -> RouteEngineSettings()
-                        SettingsScreen.TRANSIT -> TransitSettings()
-                        SettingsScreen.OFFLINE -> OfflineMapsPage(model)
-                        SettingsScreen.PLACES -> PlacesSettings(model)
-                        SettingsScreen.PRIVACY -> PrivacySettings()
-                        SettingsScreen.ABOUT -> AboutSettings { screen = SettingsScreen.DIAGNOSTICS }
-                        SettingsScreen.DIAGNOSTICS -> DiagnosticsSettings(model)
+                scrollMemory.SaveableStateProvider(sc.name) {
+                    if (sc == SettingsScreen.OFFLINE) OfflineMapsPage(model)
+                    else Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 120.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        when (sc) {
+                            SettingsScreen.MENU -> SettingsMenu { screen = it }
+                            SettingsScreen.APPEARANCE -> AppearanceSettings { screen = SettingsScreen.ICON_DESIGN }
+                            SettingsScreen.ICON_DESIGN -> IconDesignSettings()
+                            SettingsScreen.DRIVING -> {
+                                DrivingSettings()
+                                NavigationDisplaySettings()
+                            }
+                            SettingsScreen.CAMERAS -> CameraSettings()
+                            SettingsScreen.WAZE -> WazeSettings()
+                            SettingsScreen.LIVECAMS -> LiveCamSettings()
+                            SettingsScreen.MAP -> MapSettings()
+                            SettingsScreen.ROUTING -> RouteEngineSettings()
+                            SettingsScreen.TRANSIT -> TransitSettings()
+                            SettingsScreen.OFFLINE -> Unit
+                            SettingsScreen.PLACES -> PlacesSettings(model)
+                            SettingsScreen.PRIVACY -> PrivacySettings()
+                            SettingsScreen.ABOUT -> AboutSettings { screen = SettingsScreen.DIAGNOSTICS }
+                            SettingsScreen.DIAGNOSTICS -> DiagnosticsSettings(model)
+                        }
                     }
                 }
             }
@@ -351,10 +387,10 @@ fun SettingsPage(model: AppModel) {
 fun SettingsGroup(header: String? = null, footer: String? = null, content: @Composable ColumnScope.() -> Unit) {
     val dark = LocalDark.current
     Column(Modifier.padding(top = 10.dp)) {
-        if (header != null) Text(header.uppercase(), fontSize = KType.caption, fontWeight = FontWeight.SemiBold, color = secondaryText,
+        if (header != null) Text(localizeLabel(header).uppercase(AppSettings.language.locale), fontSize = KType.caption, fontWeight = FontWeight.SemiBold, color = secondaryText,
             modifier = Modifier.padding(start = 16.dp, bottom = 6.dp))
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(interfaceSurface)) { content() }
-        if (footer != null) Text(footer, fontSize = KType.caption, color = secondaryText, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp))
+        if (footer != null) Text(localizeLabel(footer), fontSize = KType.caption, color = secondaryText, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp))
     }
 }
 
@@ -365,7 +401,7 @@ fun SettingLabel(title: String, icon: ImageVector?, color: Long, modifier: Modif
         if (icon != null) Box(Modifier.size(29.dp).clip(RoundedCornerShape(7.dp)).background(hex(color)), contentAlignment = Alignment.Center) {
             Icon(icon, null, tint = Color.White, modifier = Modifier.size(18.dp))
         }
-        Text(title, fontSize = KType.body, color = primaryText)
+        Text(localizeLabel(title), fontSize = KType.body, color = primaryText)
     }
 }
 
@@ -374,7 +410,7 @@ fun ToggleRow(title: String, icon: ImageVector?, color: Long, on: Boolean, enabl
     val dark = LocalDark.current
     Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).tap { if (enabled) set(!on) }.padding(horizontal = 14.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        if (leading != null) { leading(); Spacer(Modifier.width(10.dp)); Text(title, fontSize = KType.body, color = primaryText, modifier = Modifier.weight(1f)) }
+        if (leading != null) { leading(); Spacer(Modifier.width(10.dp)); Text(localizeLabel(title), fontSize = KType.body, color = primaryText, modifier = Modifier.weight(1f)) }
         else SettingLabel(title, icon, color, Modifier.weight(1f))
         Switch(on, { if (enabled) set(it) }, enabled = enabled,
             colors = SwitchDefaults.colors(checkedTrackColor = interfaceAccent, checkedThumbColor = interfaceOnAccent))
@@ -387,12 +423,12 @@ fun <T> PickRow(title: String, icon: ImageVector?, color: Long, value: T, option
     Box {
         Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).tap { open = true }.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             SettingLabel(title, icon, color, Modifier.weight(1f))
-            Text(label(value), fontSize = KType.body, color = secondaryText)
+            Text(localizeLabel(label(value)), fontSize = KType.body, color = secondaryText)
             Icon(Icons.Filled.UnfoldMore, null, tint = secondaryText, modifier = Modifier.size(18.dp))
         }
         DropdownMenu(open, { open = false }, Modifier.align(Alignment.CenterEnd)) {
             options.forEach { o ->
-                DropdownMenuItem(text = { Text(label(o)) }, trailingIcon = { if (o == value) Icon(Icons.Filled.Check, null) }, onClick = { set(o); open = false })
+                DropdownMenuItem(text = { Text(localizeLabel(label(o))) }, trailingIcon = { if (o == value) Icon(Icons.Filled.Check, null) }, onClick = { set(o); open = false })
             }
         }
     }
@@ -404,33 +440,40 @@ private fun RowDivider() = HorizontalDivider(Modifier.padding(start = 55.dp))
 @Composable
 private fun SettingsMenu(open: (SettingsScreen) -> Unit) {
     val s = AppSettings
-    SettingsGroup {
-        @Composable
-        fun item(sc: SettingsScreen, detail: String, value: String?, icon: ImageVector, color: Long, last: Boolean = false) {
-            Row(Modifier.fillMaxWidth().tap { open(sc) }.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Box(Modifier.size(36.dp).clip(RoundedCornerShape(9.dp)).background(hex(color)), contentAlignment = Alignment.Center) {
-                    Icon(icon, null, tint = Color.White, modifier = Modifier.size(20.dp))
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(sc.title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = primaryText)
-                    Text(detail, fontSize = KType.subheadline, color = secondaryText)
-                }
-                if (value != null) Text(value, color = secondaryText)
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = secondaryText)
+    @Composable
+    fun item(sc: SettingsScreen, detail: String, value: String?, icon: ImageVector, color: Long, last: Boolean = false) {
+        Row(Modifier.fillMaxWidth().tap { open(sc) }.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Box(Modifier.size(36.dp).clip(RoundedCornerShape(9.dp)).background(hex(color)), contentAlignment = Alignment.Center) {
+                Icon(icon, null, tint = Color.White, modifier = Modifier.size(20.dp))
             }
-            if (!last) HorizontalDivider(Modifier.padding(start = 64.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(localizeLabel(sc.title), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = primaryText)
+                Text(localizeLabel(detail), fontSize = KType.subheadline, color = secondaryText)
+            }
+            if (value != null) Text(localizeLabel(value), color = secondaryText)
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = secondaryText)
         }
-        item(SettingsScreen.DRIVING, "Voice, travel mode, avoid tolls and ${if (Fmt.yards) "motorways" else "highways"}", null, Icons.AutoMirrored.Filled.VolumeUp, 0x0F766E)
+        if (!last) HorizontalDivider(Modifier.padding(start = 64.dp))
+    }
+    SettingsGroup {
+        item(SettingsScreen.APPEARANCE, "Themes, map colors and icon packs", null, Icons.Filled.Palette, 0x6E467B, last = true)
+    }
+    SettingsGroup(header = stringResource(R.string.map_title)) {
+        item(SettingsScreen.MAP, "Mapbox, terrain, map layers and labels", null, Icons.Filled.Layers, 0x334155)
+        item(SettingsScreen.OFFLINE, "Download and manage map areas", null, Icons.Filled.Download, 0x315E91)
+        item(SettingsScreen.PLACES, "Saved places and shortcuts", null, Icons.Filled.Home, 0x16A34A, last = true)
+    }
+    SettingsGroup(header = stringResource(R.string.guidance)) {
+        item(SettingsScreen.DRIVING, "Voice, controls and navigation display", null, Icons.AutoMirrored.Filled.VolumeUp, 0x0F766E)
+        item(SettingsScreen.ROUTING, "Driving, walking and cycling", null, Icons.Filled.AltRoute, 0x0F766E)
+        item(SettingsScreen.TRANSIT, "Departures, live data and pedestrian navigation", null, Icons.Filled.Tram, 0x6750A4)
         item(SettingsScreen.CAMERAS, "Camera warnings, speeding alert", null, Icons.Filled.PhotoCamera, 0xDC2626)
         item(SettingsScreen.WAZE, if (WazeAlert.Kind.POLICE in Waze.shares) "Police, crashes, closures" else "Closures, police aircraft",
             if (s.wazeOn) "On" else "Off", Icons.Filled.Warning, 0x7C3AED)
-        item(SettingsScreen.LIVECAMS, "Road camera photos and scenic webcams", if (s.liveCams) "On" else "Off", Icons.Filled.Videocam, 0x0284C7)
-        item(SettingsScreen.MAP, "Theme, units, map zoom, parking button", null, Icons.Filled.Contrast, 0x334155)
-        item(SettingsScreen.ROUTING, "Driving, walking and cycling", null, Icons.Filled.AltRoute, 0x0F766E)
-        item(SettingsScreen.TRANSIT, "Live data for Prague and Central Bohemia", null, Icons.Filled.Tram, 0x6750A4)
-        item(SettingsScreen.OFFLINE, "Download and manage map areas", null, Icons.Filled.Download, 0x315E91)
-        item(SettingsScreen.PLACES, "Home and work", null, Icons.Filled.Home, 0x16A34A)
+        item(SettingsScreen.LIVECAMS, "Road camera photos and scenic webcams", if (s.liveCams) "On" else "Off", Icons.Filled.Videocam, 0x0284C7, last = true)
+    }
+    SettingsGroup(header = stringResource(R.string.general)) {
         item(SettingsScreen.PRIVACY, "Use Kite without Google", if (s.noGoogle) "On" else null, Icons.Filled.Lock, 0x475569)
         item(SettingsScreen.ABOUT, "Version ${BuildConfig.VERSION_NAME}", null, Icons.Filled.Info, 0x64748B, last = true)
     }
@@ -498,7 +541,7 @@ private fun LiveCamSettings() {
         LiveCamStore.status?.let { st ->
             SettingsGroup {
                 Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Camera list", fontSize = KType.body, color = primaryText, modifier = Modifier.weight(1f))
+                    Text(localizeLabel("Camera list"), fontSize = KType.body, color = primaryText, modifier = Modifier.weight(1f))
                     Text(st, fontSize = KType.body, color = secondaryText)
                 }
             }
@@ -518,8 +561,11 @@ private fun MapSettingLink(title: String, icon: ImageVector, tint: Long, open: (
 private fun TransitSettings() {
     val context = LocalContext.current
     val settings = AppSettings
-    var value by remember { mutableStateOf(settings.pidAccessToken) }
+    var editWalkingAhead by rememberSaveable { mutableStateOf(false) }
     SettingsGroup(header = "Transit guidance") {
+        ToggleRow(stringResource(R.string.nearby_departures), Icons.Filled.DirectionsTransit, 0x6750A4, settings.nearbyDeparturesButton) {
+            settings.nearbyDeparturesButton = it
+        }
         ToggleRow("Notify before my stop", Icons.Filled.NotificationsActive, 0x126782, settings.transitExitAlerts) {
             settings.transitExitAlerts = it
         }
@@ -535,22 +581,39 @@ private fun TransitSettings() {
             TextButton({
                 context.startActivity(android.content.Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
                     android.net.Uri.parse("package:${context.packageName}")))
-            }, Modifier.padding(horizontal = 10.dp)) { Text("Allow on-time departure reminders") }
+            }, Modifier.padding(horizontal = 10.dp)) { Text(localizeLabel("Allow on-time departure reminders")) }
         }
     }
-    SettingsGroup(header = "Prague Integrated Transport",
-        footer = "With a Golemio token, Kite can read live departure times and vehicle positions for supported PID trips. The token stays in Kite's settings.") {
-        Column(Modifier.fillMaxWidth().padding(14.dp)) {
-            OutlinedTextField(value, { value = it }, label = { Text("Golemio API token") }, singleLine = true,
-                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth())
-            Row {
-                TextButton({ context.open("https://api.golemio.cz/api-keys") }) { Text("Get token") }
-                TextButton({ settings.pidAccessToken = value.trim() }, enabled = value.trim() != settings.pidAccessToken) { Text("Save") }
-                if (settings.pidAccessToken.isNotBlank()) TextButton({ settings.pidAccessToken = ""; value = "" }) { Text("Remove") }
+    SettingsGroup(header = "Walking navigation") {
+        MapSettingLink("Walking side panel", Icons.Filled.Tune, 0x126782) { editWalkingAhead = true }
+    }
+    if (editWalkingAhead) TripSheet("Walking side panel", "Done", { editWalkingAhead = false }) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
+            SettingsGroup(footer = "Also applies while walking to or between transit stops.") {
+                ToggleRow("Show side panel", Icons.AutoMirrored.Filled.DirectionsWalk, 0x126782, settings.walkingAhead) { settings.walkingAhead = it }
+                RowDivider()
+                PickRow("Side", Icons.Filled.SwapHoriz, 0x126782, settings.walkingAheadRight,
+                    listOf(false, true), { if (it) "Right" else "Left" }) { settings.walkingAheadRight = it }
+                RowDivider()
+                PickRow("Look ahead", Icons.Filled.RemoveRedEye, 0x126782, settings.walkingAheadRange,
+                    listOf(300, 600, 1000), { Fmt.distance(it.toDouble()) }) { settings.walkingAheadRange = it }
+            }
+            SettingsGroup(header = "Events") {
+                ToggleRow("Pedestrian crossings", Icons.AutoMirrored.Filled.DirectionsWalk, 0x126782, settings.walkingCrossings) { settings.walkingCrossings = it }
+                RowDivider()
+                ToggleRow("Traffic lights", Icons.Filled.Traffic, 0x1D4ED8, settings.walkingSignals) { settings.walkingSignals = it }
+                RowDivider()
+                ToggleRow("Stop signs", Icons.Filled.StopCircle, 0xB91C1C, settings.walkingStops) { settings.walkingStops = it }
+                RowDivider()
+                ToggleRow("Railway crossings", Icons.Filled.Train, 0x92400E, settings.walkingRail) { settings.walkingRail = it }
+                RowDivider()
+                ToggleRow("Waze reports", Icons.Filled.Warning, 0x0F766E, settings.walkingWaze) { settings.walkingWaze = it }
+                RowDivider()
+                ToggleRow("Speed cameras", Icons.Filled.PhotoCamera, 0x6D4EB0, settings.walkingCameras) { settings.walkingCameras = it }
             }
         }
     }
+
 }
 
 @Composable
@@ -558,96 +621,108 @@ private fun RouteEngineSettings() {
     val s = AppSettings
     val engines = RouteEngine.entries.filter { !s.noGoogle || it != RouteEngine.GOOGLE }
     SettingsGroup(header = "Navigation routing",
-        footer = "Automatic chooses a provider. A manual choice is used for plans and reroutes. Mapbox requires a token.") {
+        footer = "Automatic driving starts with Mapbox when configured, then tries Google if enabled and OpenStreetMap.") {
         PickRow("Driving", Icons.Filled.DirectionsCar, 0x0F766E, s.driveEngine, engines, { it.label }) { s.driveEngine = it }
         RowDivider()
         PickRow("Walking", Icons.AutoMirrored.Filled.DirectionsWalk, 0x0F766E, s.walkEngine, engines, { it.label }) { s.walkEngine = it }
         RowDivider()
         PickRow("Cycling", Icons.Filled.DirectionsBike, 0x0F766E, s.bikeEngine, engines, { it.label }) { s.bikeEngine = it }
     }
-    SettingsGroup(header = "Route profile") {
+    SettingsGroup(header = "Route preview") {
+        ToggleRow("Weather along the route", Icons.Filled.Cloud, 0x2563EB, s.routeWeather) { s.routeWeather = it }
+        RowDivider()
         ToggleRow("Prepare profile when guidance starts", Icons.Filled.Terrain, 0x0F766E, s.preloadRouteProfile) { s.preloadRouteProfile = it }
     }
 }
 
 @Composable
-private fun MapSettings() {
+private fun AppearanceSettings(openIconDesign: () -> Unit) {
     val s = AppSettings
-    var editColors by remember { mutableStateOf(false) }
-    var editRoadReports by remember { mutableStateOf(false) }
-    var editOpenPlaces by remember { mutableStateOf(false) }
-    var editNavigationPlaces by remember { mutableStateOf(false) }
-    var editWalkingAhead by remember { mutableStateOf(false) }
-    var editRoadAhead by remember { mutableStateOf(false) }
-    SettingsGroup(header = "Appearance and units") {
-        PickRow("App theme", Icons.Filled.Contrast, 0x334155, s.theme, ThemeMode.entries.toList(), { it.label }) { s.theme = it }
-        RowDivider()
-        PickRow("Distance units", Icons.Filled.Straighten, 0x0891B2, s.units, UnitsMode.entries.toList(), { it.label }) { s.units = it }
-        RowDivider()
-        ToggleRow("Parking button on the map", Icons.Filled.LocalParking, 0x2563EB, s.parkingButton) { s.parkingButton = it }
-    }
-    SettingsGroup(header = "Controls and search") {
-        ToggleRow("Swap navigation controls and speedometer", Icons.Filled.SwapHoriz, 0x2563EB, s.swapNavigationSides) { s.swapNavigationSides = it }
-        RowDivider()
-        ToggleRow("Solid search background", Icons.Filled.Search, 0x0F766E, s.solidMapSearch) { s.solidMapSearch = it }
-        RowDivider()
-        ToggleRow("Categories in one button", Icons.Filled.Category, 0x0F766E, s.categoryMenu) { s.categoryMenu = it }
-        RowDivider()
+    val context = LocalContext.current
+    var editColors by rememberSaveable { mutableStateOf(false) }
+    SettingsGroup(header = stringResource(R.string.appearance)) {
+        PickRow(stringResource(R.string.app_theme), Icons.Filled.Contrast, 0x334155, s.theme, ThemeMode.entries, { it.label }) { s.theme = it }
         MapInterfaceColors()
     }
-    SettingsGroup(header = "Map icon sizes") {
-        PinSizeRow("Google Maps icons", s.googleIconPercent) { s.googleIconPercent = it }
+    SettingsGroup(header = "Map appearance") {
+        PickRow("Map lighting", Icons.Filled.Contrast, 0x334155, s.mapStyleMode,
+            MapStyleMode.entries, { it.label }) { s.mapStyleMode = it }
         RowDivider()
-        PinSizeRow("OpenStreetMap icons", s.osmIconPercent) { s.osmIconPercent = it }
-        RowDivider()
-        PinSizeRow("Search results", s.resultIconPercent) { s.resultIconPercent = it }
-    }
-    MapboxSettings()
-    SettingsGroup(header = "Mapbox Standard", footer = "Mapbox Standard uses your Mapbox token. Street lamps use mapped posts and estimated placement on nearby streets at street zoom.") {
-        ToggleRow("Mapbox Standard", Icons.Filled.ViewInAr, 0x0F766E, s.standardMap) { s.standardMap = it }
-        RowDivider()
-        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).tap { editColors = true }.padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            SettingLabel("Map colors", Icons.Filled.Palette, 0x6D4EB0, Modifier.weight(1f))
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = secondaryText)
-        }
-        RowDivider()
-        ToggleRow("3D terrain", Icons.Filled.Terrain, 0x166534, s.terrain3D) { s.terrain3D = it }
-        RowDivider()
-        ToggleRow("Hillshade", Icons.Filled.Landscape, 0x475569, s.terrain) { s.terrain = it }
-        RowDivider()
-        ToggleRow("Building shadows", Icons.Filled.WbSunny, 0xB45309, s.buildingShadows) { s.buildingShadows = it }
-        RowDivider()
-        ToggleRow("Street lamps", Icons.Filled.Lightbulb, 0xB45309, s.streetLamps) { s.streetLamps = it }
-    }
-    if (editColors) MapColorsPage { editColors = false }
-    SettingsGroup(header = "Places on the map", footer = "When enabled, Kite asks Google about nearby businesses after the map stops moving. Open map places are also displayed.") {
-        ToggleRow("Google Maps places", Icons.Filled.Place, 0x1D4ED8, s.googleMapPlaces, enabled = !s.noGoogle) { s.googleMapPlaces = it }
-        RowDivider()
-        ToggleRow("OpenStreetMap places", Icons.Outlined.Map, 0x0F766E, s.openMapPlaces) { s.openMapPlaces = it }
-        RowDivider()
-        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).tap { editOpenPlaces = true }.padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            SettingLabel("OpenStreetMap icon categories", Icons.Filled.Tune, 0x0F766E, Modifier.weight(1f))
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = secondaryText)
-        }
-    }
-    if (editOpenPlaces) TripSheet("OpenStreetMap icons", "Done", { editOpenPlaces = false }) {
-        Column(Modifier.verticalScroll(rememberScrollState())) {
-            for (group in OpenPlaceGroup.entries) {
-                ToggleRow(group.label, Icons.Filled.Place, 0x0F766E, group in s.openPlaceGroups) { show ->
-                    s.openPlaceGroups = if (show) s.openPlaceGroups + group else s.openPlaceGroups - group
+        PickRow("Map color family", Icons.Filled.Palette, 0x6E467B, s.mapColorMode,
+            MapColorMode.entries, { it.label }) { s.mapColorMode = it }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            for (dark in listOf(false, true)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    MapAppearanceScene(mapPalette(dark), Modifier.fillMaxWidth().height(64.dp))
+                    Text(kt(if (dark) "Night" else "Day", if (dark) "Noční mapa" else "Denní mapa"),
+                        fontSize = KType.caption, color = secondaryText)
                 }
             }
         }
-    }
-    SettingsGroup(header = "While driving",
-        footer = "Kite still zooms in for turns and out on long roads. Closer shows the streets bigger; Wider shows more road ahead. Normal is how Kite has always been.") {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SettingLabel("Map zoom while driving", Icons.Filled.ZoomIn, 0x0F766E)
-            Segmented(MapZoom.entries.toList(), s.mapZoom, { it.title }) { s.mapZoom = it }
-        }
         RowDivider()
+        MapSettingLink("Map colors", Icons.Filled.ColorLens, 0x6E467B) { editColors = true }
+    }
+    SettingsGroup {
+        MapSettingLink("Map and navigation design", Icons.Filled.Tune, 0x6E467B, openIconDesign)
+    }
+    if (editColors) MapColorsPage { editColors = false }
+    SettingsGroup(header = stringResource(R.string.language)) {
+        PickRow(stringResource(R.string.language), Icons.Filled.Translate, 0x0F766E, s.language,
+            KiteLanguage.entries, { it.label }) {
+            s.language = it
+            (context as? android.app.Activity)?.recreate()
+        }
+        ToggleRow(stringResource(R.string.czech_voice), Icons.Filled.Mic, 0x0F766E, s.czechVoiceSearch) { s.czechVoiceSearch = it }
+        PickRow("Distance units", Icons.Filled.Straighten, 0x0891B2, s.units, UnitsMode.entries, { it.label }) { s.units = it }
+    }
+    SettingsGroup(header = stringResource(R.string.launcher)) {
+        ToggleRow(stringResource(R.string.launcher_night), Icons.Filled.DarkMode, 0x6D4EB0, s.launcherNightIcon) {
+            LauncherAppearance.apply(context, it, s.launcherMapsName)
+        }
+        ToggleRow(stringResource(R.string.launcher_name_setting), Icons.Filled.Edit, 0x0F766E, s.launcherMapsName) {
+            LauncherAppearance.apply(context, s.launcherNightIcon, it)
+        }
+    }
+    SettingsGroup(header = "Search appearance") {
+        ToggleRow("Solid search background", Icons.Filled.Search, 0x0F766E, s.solidMapSearch) { s.solidMapSearch = it }
+        ToggleRow("Categories in one button", Icons.Filled.Category, 0x0F766E, s.categoryMenu) { s.categoryMenu = it }
+    }
+}
+
+@Composable
+private fun IconDesignSettings() {
+    val s = AppSettings
+    val current = s.markerTheme
+    SettingsGroup(header = "Map icon packs") {
+        PickRow("Icon pack", Icons.Filled.Palette, 0x6E467B, current,
+            MarkerTheme.selectable + listOf(current).filterNot { it in MarkerTheme.selectable },
+            { it.label }) { s.markerTheme = it }
+        Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp).height(78.dp)) {
+            MapAppearanceScene(mapPalette(LocalDark.current), Modifier.fillMaxSize())
+            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                MapPinPreview(MapIcons.Sample.GOOGLE, s.googleIconPercent)
+                MapPinPreview(MapIcons.Sample.OSM, s.osmIconPercent)
+                MapPinPreview(MapIcons.Sample.SEARCH, s.resultIconPercent)
+                MapPinPreview(MapIcons.Sample.WAZE, s.wazeMapPercent)
+            }
+        }
+    }
+    SettingsGroup(header = "Map icon sizes") {
+        PinSizeRow("Google Maps icons", s.googleIconPercent, MapIcons.Sample.GOOGLE) { s.googleIconPercent = it }
+        RowDivider()
+        PinSizeRow("OpenStreetMap icons", s.osmIconPercent, MapIcons.Sample.OSM) { s.osmIconPercent = it }
+        RowDivider()
+        PinSizeRow("Search results", s.resultIconPercent, MapIcons.Sample.SEARCH) { s.resultIconPercent = it }
+        RowDivider()
+        PinSizeRow("Waze icons on the map", s.wazeMapPercent, MapIcons.Sample.WAZE) { s.wazeMapPercent = it }
+    }
+    SettingsGroup(header = "Turn arrows on the map") {
+        PickRow("Arrow style", Icons.Filled.TurnRight, 0x0F766E, s.routeArrowStyle,
+            RouteArrowStyle.entries, { it.label }) { s.routeArrowStyle = it }
+        RouteArrowPreview(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp))
+    }
+    SettingsGroup(header = "Position on the map") {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SettingLabel("Vehicle marker", Icons.Filled.DirectionsCar, 0x0F766E)
             val dark = LocalDark.current
@@ -667,21 +742,96 @@ private fun MapSettings() {
                 }
             }
         }
+    }
+    SettingsGroup(header = "Road ahead strip") {
+        PickRow("Road ahead design", Icons.Filled.Traffic, 0xAD362C,
+            s.roadStripStyle, RoadStripStyle.entries, { it.label }) { s.roadStripStyle = it }
+        RowDivider()
+        PickRow("Road ahead position", Icons.Filled.SwapVert, 0x0F766E,
+            s.roadStripPosition, RoadStripPosition.entries, { it.label }) { s.roadStripPosition = it }
+        RowDivider()
+        PinSizeRow("Waze icons on the route strip", s.wazeStripPercent, roadStrip = true) { s.wazeStripPercent = it }
+    }
+}
+
+private val categoryIcons = mapOf(
+    OpenPlaceGroup.WATER to Icons.Filled.WaterDrop,
+    OpenPlaceGroup.PARKING to Icons.Filled.LocalParking,
+    OpenPlaceGroup.TOILETS to Icons.Filled.Wc,
+    OpenPlaceGroup.BIKE to Icons.Filled.PedalBike,
+    OpenPlaceGroup.OUTDOORS to Icons.Filled.Park,
+    OpenPlaceGroup.FOOD to Icons.Filled.Restaurant,
+    OpenPlaceGroup.SHOP to Icons.Filled.ShoppingBasket,
+    OpenPlaceGroup.FUEL to Icons.Filled.LocalGasStation,
+    OpenPlaceGroup.MEDICAL to Icons.Filled.MedicalServices,
+    OpenPlaceGroup.TRANSIT to Icons.Filled.Tram,
+    OpenPlaceGroup.MORE to Icons.Filled.Place,
+)
+
+@Composable
+private fun MapSettings() {
+    val s = AppSettings
+    var editOpenPlaces by rememberSaveable { mutableStateOf(false) }
+    MapboxSettings()
+    SettingsGroup(header = "Map controls") {
+        ToggleRow("Parking button on the map", Icons.Filled.LocalParking, 0x2563EB, s.parkingButton) { s.parkingButton = it }
+    }
+    SettingsGroup(header = "Mapbox Standard", footer = "Mapbox Standard uses your Mapbox token. Street lamps use mapped posts and estimated placement on nearby streets at street zoom.") {
+        ToggleRow("Mapbox Standard", Icons.Filled.ViewInAr, 0x0F766E, s.standardMap) { s.standardMap = it }
+        RowDivider()
+        ToggleRow("3D terrain", Icons.Filled.Terrain, 0x166534, s.terrain3D) { s.terrain3D = it }
+        RowDivider()
+        ToggleRow("Hillshade", Icons.Filled.Landscape, 0x475569, s.terrain) { s.terrain = it }
+        RowDivider()
+        ToggleRow("Building shadows", Icons.Filled.WbSunny, 0xB45309, s.buildingShadows) { s.buildingShadows = it }
+        RowDivider()
+        ToggleRow("Street lamps", Icons.Filled.Lightbulb, 0xB45309, s.streetLamps) { s.streetLamps = it }
+        ToggleRow("Trees", Icons.Filled.Park, 0x166534, s.mapTrees) { s.mapTrees = it }
+        ToggleRow("3D buildings", Icons.Filled.Apartment, 0x475569, s.mapBuildings) { s.mapBuildings = it }
+    }
+    SettingsGroup(header = "Places on the map", footer = "When enabled, Kite asks Google about nearby businesses after the map stops moving. Open map places are also displayed.") {
+        ToggleRow("Google Maps places", Icons.Filled.Place, 0x1D4ED8, s.googleMapPlaces, enabled = !s.noGoogle) { s.googleMapPlaces = it }
+        RowDivider()
+        ToggleRow("OpenStreetMap places", Icons.Outlined.Map, 0x0F766E, s.openMapPlaces) { s.openMapPlaces = it }
+        RowDivider()
+        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).tap { editOpenPlaces = true }.padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            SettingLabel("OpenStreetMap icon categories", Icons.Filled.Tune, 0x0F766E, Modifier.weight(1f))
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = secondaryText)
+        }
+    }
+    if (editOpenPlaces) TripSheet("OpenStreetMap icons", "Done", { editOpenPlaces = false }) {
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            for (group in OpenPlaceGroup.entries) {
+                ToggleRow(group.label, categoryIcons.getValue(group), 0x0F766E, group in s.openPlaceGroups) { show ->
+                    s.openPlaceGroups = if (show) s.openPlaceGroups + group else s.openPlaceGroups - group
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NavigationDisplaySettings() {
+    val s = AppSettings
+    var editRoadReports by remember { mutableStateOf(false) }
+    var editNavigationPlaces by remember { mutableStateOf(false) }
+    var editRoadAhead by remember { mutableStateOf(false) }
+    SettingsGroup(header = "Controls") {
+        ToggleRow("Swap navigation controls and speedometer", Icons.Filled.SwapHoriz, 0x2563EB, s.swapNavigationSides) {
+            s.swapNavigationSides = it
+        }
+    }
+    SettingsGroup(header = "While driving",
+        footer = "Kite still zooms in for turns and out on long roads. Closer shows the streets bigger; Wider shows more road ahead. Normal zooms in a little closer.") {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SettingLabel("Map zoom while driving", Icons.Filled.ZoomIn, 0x0F766E)
+            Segmented(MapZoom.entries.toList(), s.mapZoom, { it.title }) { s.mapZoom = it }
+        }
         RowDivider()
         ToggleRow("Parking near destination", Icons.Filled.LocalParking, 0x2563EB, s.arrivalParking) { s.arrivalParking = it }
         RowDivider()
         ToggleRow("Road ahead strip", Icons.Filled.Traffic, 0x0F766E, s.roadAheadStrip) { s.roadAheadStrip = it }
-        RowDivider()
-        PickRow("Road ahead position", Icons.Filled.SwapVert, 0x0F766E,
-            s.roadStripPosition, RoadStripPosition.entries.toList(), { it.label }) { s.roadStripPosition = it }
-    }
-    SettingsGroup(header = "Map and route icons") {
-        PickRow("Icon design", Icons.Filled.Palette, 0x7C3AED, s.markerTheme, MarkerTheme.entries, { it.label }) { s.markerTheme = it }
-        RowDivider()
-        PickRow("Road ahead design", Icons.Filled.Traffic, 0xAD362C, s.roadStripStyle, RoadStripStyle.entries, { it.label }) { s.roadStripStyle = it }
-        RowDivider()
-        PinSizeRow("Waze icons on the map", s.wazeMapPercent) { s.wazeMapPercent = it }
-        PinSizeRow("Waze icons on the route strip", s.wazeStripPercent) { s.wazeStripPercent = it }
     }
     SettingsGroup(header = "Navigation overlays") {
         ToggleRow("Picture-in-picture", Icons.Filled.PictureInPictureAlt, 0x2563EB, s.navigationPictureInPicture) {
@@ -694,34 +844,6 @@ private fun MapSettings() {
         MapSettingLink("Places while navigating", Icons.Filled.Place, 0x0F766E) { editNavigationPlaces = true }
         RowDivider()
         MapSettingLink("Road ahead and map alerts", Icons.Filled.Traffic, 0xAD362C) { editRoadAhead = true }
-        RowDivider()
-        MapSettingLink("Walking side panel", Icons.AutoMirrored.Filled.DirectionsWalk, 0x126782) { editWalkingAhead = true }
-    }
-    if (editWalkingAhead) TripSheet("Walking side panel", "Done", { editWalkingAhead = false }) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
-            SettingsGroup(footer = "Also applies while walking to or between transit stops.") {
-                ToggleRow("Show side panel", Icons.AutoMirrored.Filled.DirectionsWalk, 0x126782, s.walkingAhead) { s.walkingAhead = it }
-                RowDivider()
-                PickRow("Side", Icons.Filled.SwapHoriz, 0x126782, s.walkingAheadRight,
-                    listOf(false, true), { if (it) "Right" else "Left" }) { s.walkingAheadRight = it }
-                RowDivider()
-                PickRow("Look ahead", Icons.Filled.RemoveRedEye, 0x126782, s.walkingAheadRange,
-                    listOf(300, 600, 1000), { Fmt.distance(it.toDouble()) }) { s.walkingAheadRange = it }
-            }
-            SettingsGroup(header = "Events") {
-                ToggleRow("Pedestrian crossings", Icons.AutoMirrored.Filled.DirectionsWalk, 0x126782, s.walkingCrossings) { s.walkingCrossings = it }
-                RowDivider()
-                ToggleRow("Traffic lights", Icons.Filled.Traffic, 0x1D4ED8, s.walkingSignals) { s.walkingSignals = it }
-                RowDivider()
-                ToggleRow("Stop signs", Icons.Filled.StopCircle, 0xB91C1C, s.walkingStops) { s.walkingStops = it }
-                RowDivider()
-                ToggleRow("Railway crossings", Icons.Filled.Train, 0x92400E, s.walkingRail) { s.walkingRail = it }
-                RowDivider()
-                ToggleRow("Waze reports", Icons.Filled.Warning, 0x0F766E, s.walkingWaze) { s.walkingWaze = it }
-                RowDivider()
-                ToggleRow("Speed cameras", Icons.Filled.PhotoCamera, 0x6D4EB0, s.walkingCameras) { s.walkingCameras = it }
-            }
-        }
     }
     if (editNavigationPlaces) TripSheet("Places while navigating", "Done", { editNavigationPlaces = false }) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
@@ -738,7 +860,7 @@ private fun MapSettings() {
             if (s.navigationPlaces) {
                 items(OpenPlaceGroup.entries, key = { it.name }) { group ->
                     SettingsGroup {
-                        ToggleRow(group.label, Icons.Filled.Place, 0x0F766E, group in s.navigationPlaceGroups) { show ->
+                        ToggleRow(group.label, categoryIcons.getValue(group), 0x0F766E, group in s.navigationPlaceGroups) { show ->
                             s.navigationPlaceGroups = if (show) s.navigationPlaceGroups + group else s.navigationPlaceGroups - group
                         }
                     }
@@ -784,20 +906,41 @@ private fun MapSettings() {
 }
 
 @Composable
-private fun PinSizeRow(title: String, percent: Int, save: (Int) -> Unit) {
+private fun PinSizeRow(title: String, percent: Int, sample: MapIcons.Sample? = null, roadStrip: Boolean = false, save: (Int) -> Unit) {
     var value by remember(percent) { mutableFloatStateOf(percent.coerceIn(60, 160).toFloat()) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(title, modifier = Modifier.weight(1f), color = primaryText)
             Text("${value.toInt()}%", color = secondaryText)
+            if (sample != null) {
+                Spacer(Modifier.width(10.dp))
+                val shape = RoundedCornerShape(13.dp)
+                Box(Modifier.size(64.dp, 55.dp).clip(shape).background(interfaceGround), contentAlignment = Alignment.Center) {
+                    MapPinPreview(sample, value.toInt())
+                }
+            }
         }
         Slider(value, { value = it }, valueRange = 60f..160f, steps = 9, onValueChangeFinished = { save(value.toInt()) },
             modifier = Modifier.semantics { contentDescription = title })
+        if (roadStrip) {
+            val position = AppSettings.roadStripPosition
+            val alignment = when (position) {
+                RoadStripPosition.TOP -> Alignment.TopCenter
+                RoadStripPosition.BOTTOM -> Alignment.BottomCenter
+                RoadStripPosition.LEFT -> Alignment.CenterStart
+                RoadStripPosition.RIGHT -> Alignment.CenterEnd
+            }
+            val vertical = position == RoadStripPosition.LEFT || position == RoadStripPosition.RIGHT
+            Box(Modifier.fillMaxWidth().height(if (vertical) 172.dp else 105.dp)) {
+                MapAppearanceScene(mapPalette(LocalDark.current), Modifier.fillMaxSize())
+                Box(Modifier.align(alignment).padding(6.dp)) { RoadAheadPreview(value.toInt()) }
+            }
+        }
     }
 }
 
 private val accentColors = linkedMapOf(
-    "Teal" to "#0F9B8F", "Blue" to "#4289EF", "Indigo" to "#686FE8", "Purple" to "#9B63D5",
+    "Black" to "#000000", "Teal" to "#0F9B8F", "Blue" to "#4289EF", "Indigo" to "#686FE8", "Purple" to "#9B63D5",
     "Rose" to "#CF527F", "Orange" to "#DC7841", "Gold" to "#C79522", "Green" to "#3A9A69",
 )
 private val lightPanelColors = linkedMapOf(
@@ -805,13 +948,19 @@ private val lightPanelColors = linkedMapOf(
     "Rose" to "#FFF0F4", "Sand" to "#FFF4E4", "Fog" to "#F1F4F7", "Ice" to "#E8F7FA",
 )
 private val darkPanelColors = linkedMapOf(
-    "Midnight" to "#141E30", "Slate" to "#253042", "Deep ocean" to "#152B46", "Forest" to "#142F29",
+    "Black" to "#000000", "Midnight" to "#141E30", "Slate" to "#253042", "Deep ocean" to "#152B46", "Forest" to "#142F29",
     "Plum" to "#301D3A", "Burgundy" to "#391F2A", "Espresso" to "#30241B", "Graphite" to "#24272E",
 )
 
 @Composable
 internal fun MapInterfaceColors() {
     val s = AppSettings
+    val available = InterfacePalette.available
+    val current = s.interfacePalette.takeIf { it in available } ?: InterfacePalette.KITE
+    val labels = available.associateWith { stringResource(it.label) }
+    PickRow(stringResource(R.string.color_palette), Icons.Filled.Palette, 0x6D4EB0,
+        current, available, { labels.getValue(it) }) { s.interfacePalette = it }
+    RowDivider()
         MapUiColorRow("Control accent", s.mapUiAccent, accentColors) { s.mapUiAccent = it }
         RowDivider()
         MapUiColorRow("Light interface panels", s.mapUiDayPanel, lightPanelColors) { s.mapUiDayPanel = it }
@@ -825,7 +974,7 @@ private fun MapUiColorRow(label: String, current: String?, swatches: Map<String,
     Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).tap { editing = true }.padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         SettingLabel(label, Icons.Filled.Palette, 0x6D4EB0, Modifier.weight(1f))
-        if (current == null) Text("Default", color = secondaryText)
+        if (current == null) Text(localizeLabel("Default"), color = secondaryText)
         else Box(Modifier.size(24.dp).clip(CircleShape).background(swatchColor(current))
             .border(1.dp, secondaryText, CircleShape))
         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = secondaryText)
@@ -839,7 +988,7 @@ private fun swatchColor(value: String) = Color(android.graphics.Color.parseColor
 @Composable
 private fun MapColorPicker(
     title: String, initial: String, swatches: Map<String, String>, close: () -> Unit,
-    reset: (() -> Unit)? = null, save: (String) -> Unit,
+    reset: (() -> Unit)? = null, preview: (@Composable (String) -> Unit)? = null, save: (String) -> Unit,
 ) {
     fun components(value: String) = FloatArray(3).also {
         android.graphics.Color.colorToHSV(android.graphics.Color.parseColor(value), it)
@@ -859,8 +1008,9 @@ private fun MapColorPicker(
         text = {
             Column(Modifier.heightIn(max = 410.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.fillMaxWidth().height(64.dp).clip(shape).background(Color(color))
-                    .border(1.dp, secondaryText, shape).semantics { contentDescription = "Selected color" })
+                if (preview != null) preview(hex)
+                else Box(Modifier.fillMaxWidth().height(64.dp).clip(shape).background(Color(color))
+                    .border(1.dp, secondaryText, shape).semantics { contentDescription = localizeLabel("Selected color") })
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     for ((name, value) in swatches.entries.distinctBy { it.value }) {
                         val on = hex.equals(value, ignoreCase = true)
@@ -877,18 +1027,34 @@ private fun MapColorPicker(
                 }
                 TextButton({ custom = !custom }) { Text(if (custom) "Hide sliders" else "Custom color") }
                 if (custom) {
-                    Text("Hue", color = primaryText)
+                    Text(localizeLabel("Hue"), color = primaryText)
                     Slider(hsv[0].coerceIn(0f, 359.9f), { channel(0, it) }, valueRange = 0f..359.9f)
-                    Text("Saturation", color = primaryText)
+                    val hue = hsv[0]
+                    fun change(saturation: Float, value: Float) { hsv = floatArrayOf(hue, saturation, value) }
+                    val touch = Modifier.pointerInput(hue) {
+                        detectTapGestures { point ->
+                            change((point.x / size.width).coerceIn(0f, 1f), (1 - point.y / size.height).coerceIn(0f, 1f))
+                        }
+                    }.pointerInput(hue) {
+                        detectDragGestures { event, _ ->
+                            event.consume()
+                            change((event.position.x / size.width).coerceIn(0f, 1f), (1 - event.position.y / size.height).coerceIn(0f, 1f))
+                        }
+                    }
+                    val hueColor = Color.hsv(hue.coerceIn(0f, 360f), 1f, 1f)
+                    Box(Modifier.fillMaxWidth().height(116.dp).clip(shape).then(touch)
+                        .background(Brush.horizontalGradient(listOf(Color.White, hueColor)))
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black))))
+                    Text(localizeLabel("Saturation"), color = primaryText)
                     Slider(hsv[1], { channel(1, it) })
-                    Text("Brightness", color = primaryText)
+                    Text(localizeLabel("Brightness"), color = primaryText)
                     Slider(hsv[2], { channel(2, it) })
                 }
-                if (reset != null) TextButton(reset) { Text("Use default") }
+                if (reset != null) TextButton(reset) { Text(localizeLabel("Use default")) }
             }
         },
-        confirmButton = { TextButton({ save(hex) }) { Text("Apply") } },
-        dismissButton = { TextButton(close) { Text("Cancel") } },
+        confirmButton = { TextButton({ save(hex) }) { Text(localizeLabel("Apply")) } },
+        dismissButton = { TextButton(close) { Text(localizeLabel("Cancel")) } },
     )
 }
 
@@ -898,22 +1064,39 @@ private fun MapColorsPage(close: () -> Unit) {
     val appDark = LocalDark.current
     var dark by remember { mutableStateOf(appDark) }
     var field by remember { mutableStateOf<MapColor?>(null) }
-    val palette = if (dark) s.nightMapPalette else s.dayMapPalette
-    fun apply(value: MapPalette) {
-        if (dark) s.nightMapPalette = value else s.dayMapPalette = value
-    }
+    val palette = mapPalette(dark)
+    val presets = MapPalette.presets(dark, wallpaperMapPalette(dark))
+    fun apply(value: MapPalette?) = s.setMapPalette(dark, value)
     fun swatch(hex: String) = Color(android.graphics.Color.parseColor(hex))
     TripSheet("Map colors", "Done", close) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Segmented(listOf(false, true), dark, { if (it) "Night" else "Day" }) { dark = it }
-            SettingsGroup(header = "Palettes") {
-                for ((name, preset) in MapPalette.presets(dark)) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).tap { apply(preset) }.padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(name, Modifier.weight(1f), color = primaryText)
-                        for (color in preset.colors) Box(Modifier.size(15.dp).clip(CircleShape).background(swatch(color)))
-                        if (palette == preset) Icon(Icons.Filled.Check, "Selected", modifier = Modifier.size(18.dp))
+            MapAppearanceScene(palette, Modifier.fillMaxWidth().height(156.dp)
+                .semantics { contentDescription = kt("Selected map colors", "Náhled vybraných barev mapy") })
+            Text(kt("Palettes", "Palety"), color = secondaryText, fontWeight = FontWeight.SemiBold)
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.selectableGroup()) {
+                for (pair in presets.entries.chunked(2)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        for ((name, preset) in pair) {
+                            val selected = palette == preset
+                            val shape = RoundedCornerShape(20.dp)
+                            Column(Modifier.weight(1f).clip(shape).background(interfaceGround)
+                                .border(if (selected) 2.dp else 0.dp, if (selected) interfaceAccent else Color.Transparent, shape)
+                                .selectable(selected, role = Role.RadioButton) {
+                                    if (name == MapPalette.EXPRESSIVE_LABEL) s.mapColorMode = MapColorMode.EXPRESSIVE
+                                    else apply(preset)
+                                }.padding(7.dp)) {
+                                MapAppearanceScene(preset, Modifier.fillMaxWidth().height(78.dp))
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 3.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically) {
+                                    Text(name, Modifier.weight(1f), color = primaryText,
+                                        fontWeight = FontWeight.SemiBold, fontSize = KType.caption)
+                                    if (selected) Icon(Icons.Filled.Check, null, modifier = Modifier.size(16.dp), tint = interfaceAccentText)
+                                }
+                            }
+                        }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
             }
@@ -927,13 +1110,15 @@ private fun MapColorsPage(close: () -> Unit) {
                     }
                 }
             }
-            TextButton({ apply(MapPalette.default(dark)) }) { Text("Reset colors") }
+            TextButton({ apply(null) }) { Text(localizeLabel("Reset colors")) }
         }
     }
     field?.let { selected ->
-        val swatches = MapPalette.presets(dark).map { (name, preset) -> "$name palette" to preset[selected] }.toMap() +
+        val swatches = presets.map { (name, preset) -> "$name palette" to preset[selected] }.toMap() +
             (if (dark) darkPanelColors else lightPanelColors) + accentColors
-        MapColorPicker(selected.label, palette[selected], swatches, close = { field = null }) {
+        MapColorPicker(selected.label, palette[selected], swatches, close = { field = null }, preview = { color ->
+            MapAppearanceScene(palette.change(selected, color), Modifier.fillMaxWidth().height(102.dp))
+        }) {
             apply(palette.change(selected, it))
             field = null
         }
@@ -961,23 +1146,23 @@ private fun MapboxSettings() {
         val valid = MapboxDirections.isPublicToken(value)
         AlertDialog(
             onDismissRequest = { editing = false },
-            title = { Text("Mapbox public token") },
+            title = { Text(localizeLabel("Mapbox public token")) },
             text = {
-                OutlinedTextField(token, { token = it }, label = { Text("Public access token") },
+                OutlinedTextField(token, { token = it }, label = { Text(localizeLabel("Public access token")) },
                     placeholder = { Text("pk.…") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                     isError = value.isNotEmpty() && !valid,
-                    supportingText = { Text("Use a public token from your Mapbox account.") })
+                    supportingText = { Text(localizeLabel("Use a public token from your Mapbox account.")) })
             },
             confirmButton = {
                 TextButton(onClick = {
                     s.mapboxPublicToken = value
                     s.mapboxEnabled = true
                     editing = false
-                }, enabled = valid) { Text("Save") }
+                }, enabled = valid) { Text(localizeLabel("Save")) }
             },
             dismissButton = {
-                if (configured) TextButton(onClick = { s.mapboxPublicToken = ""; editing = false }) { Text("Remove") }
-                TextButton(onClick = { editing = false }) { Text("Cancel") }
+                if (configured) TextButton(onClick = { s.mapboxPublicToken = ""; editing = false }) { Text(localizeLabel("Remove")) }
+                TextButton(onClick = { editing = false }) { Text(localizeLabel("Cancel")) }
             },
         )
     }
@@ -987,11 +1172,11 @@ private fun MapboxSettings() {
 @Composable
 fun <T> Segmented(options: List<T>, value: T, label: (T) -> String, set: (T) -> Unit) {
     val dark = LocalDark.current
-    Row(Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(10.dp)).background(Vela.chip(dark)).padding(2.dp)) {
+    Row(Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(10.dp)).background(interfaceChip).padding(2.dp)) {
         options.forEach { o ->
             val on = o == value
             Box(Modifier.weight(1f).fillMaxHeight().then(if (on) Modifier.shadow(1.dp, RoundedCornerShape(8.dp)) else Modifier)
-                .clip(RoundedCornerShape(8.dp)).background(if (on) Vela.surface(dark) else Color.Transparent).tap { set(o) }
+                .clip(RoundedCornerShape(8.dp)).background(if (on) interfaceSurface else Color.Transparent).tap { set(o) }
                 .semantics { selected = on; contentDescription = label(o) },
                 contentAlignment = Alignment.Center) {
                 Text(label(o), fontSize = 15.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium, color = primaryText)
@@ -1018,7 +1203,7 @@ private fun PlacesSettings(model: AppModel) {
         for (place in s.placeShortcuts) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 SettingLabel(place.name, Icons.Filled.Place, 0x2563EB, Modifier.weight(1f))
-                TextButton({ model.shortcutDraft = place }) { Text("Edit") }
+                TextButton({ model.shortcutDraft = place }) { Text(localizeLabel("Edit")) }
             }
         }
         MapSettingLink("Add shortcut", Icons.Filled.Add, 0x16A34A) { model.picking = PickKind.SHORTCUT }
@@ -1035,40 +1220,51 @@ private fun PrivacySettings() {
 
 @Composable
 private fun AboutSettings(openDiagnostics: () -> Unit) {
-    val ctx = LocalContext.current
-    val dark = LocalDark.current
-    @Composable
-    fun link(text: String, url: String) {
-        Text(text, fontSize = KType.body, color = Vela.accentText(dark), modifier = Modifier.fillMaxWidth().tap { ctx.open(url) }.padding(horizontal = 14.dp, vertical = 14.dp))
-    }
-    SettingsGroup {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp)) {
-            Text("Version", fontSize = KType.body, color = primaryText, modifier = Modifier.weight(1f))
+    val context = LocalContext.current
+    var showChanges by rememberSaveable { mutableStateOf(false) }
+    var showCredits by rememberSaveable { mutableStateOf(false) }
+    SettingsGroup(kt("Kite Driving", "Kite Driving")) {
+        Row(Modifier.fillMaxWidth().padding(14.dp)) {
+            Text(localizeLabel("Version"), fontSize = KType.body, color = primaryText, modifier = Modifier.weight(1f))
             Text(BuildConfig.VERSION_NAME, color = secondaryText)
         }
         HorizontalDivider()
-        link("Kite Maps on GitHub", "https://github.com/matteofx1/kite-maps")
-        HorizontalDivider()
-        link("Based on Vela Maps for Android", "https://github.com/PimpinPumpkin/Vela")
-        HorizontalDivider()
-        link("Live Waze reports the way SABRE Plus gets them (MIT)", "https://github.com/nicglazkov/highway-radar-sabre-plus")
-        HorizontalDivider()
-        Text("Free software under the GPL-3.0. Map © OpenFreeMap, OpenMapTiles, OpenStreetMap contributors. Routing © FOSSGIS OSRM. Imagery © Esri.",
-            fontSize = KType.caption, color = secondaryText, modifier = Modifier.padding(14.dp))
-    }
-    SettingsGroup(footer = "Makes a small file to send with a bug report.") {
-        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).tap(openDiagnostics).padding(horizontal = 14.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            SettingLabel("Share diagnostics", Icons.Filled.BugReport, 0x64748B, Modifier.weight(1f))
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = secondaryText)
+        ProjectStory()
+        RowDivider()
+        MapSettingLink(kt("Kite Driving on GitHub", "Kite Driving na GitHubu"), Icons.Filled.Code, 0x475569) {
+            context.open(ANDROID_RELEASES)
         }
     }
-    SettingsGroup("Thanks to") {
-        link("Surveillance cameras, saved-place matching, GPS warnings and diagnostics from Ausbloke's Kite fork", "https://github.com/NotDiscordOfficial/kite-maps")
-        HorizontalDivider()
-        link("UK road camera list from OpenHighways (MIT)", "https://github.com/JamesDillonDev/openhighways")
-        HorizontalDivider()
-        link("Webcams provided by Windy.com", "https://www.windy.com/webcams")
+    SettingsGroup(kt("Project", "Projekt")) {
+        MapSettingLink(kt("Changes from Kite", "Změny oproti Kite"), Icons.Filled.List, 0x0F766E) { showChanges = true }
+        RowDivider()
+        MapSettingLink(kt("Credits and data sources", "Poděkování a zdroje dat"), Icons.Filled.Favorite, 0xAA3863) { showCredits = true }
+        RowDivider()
+        MapSettingLink(kt("Source code license · GPL-3.0", "Licence zdrojového kódu · GPL-3.0"), Icons.Filled.Info, 0x475569) {
+            context.open("$ANDROID_PROJECT/blob/android/kite-driving-0.8.19/LICENSE")
+        }
+    }
+    SettingsGroup(footer = "Makes a small file to send with a bug report.") {
+        MapSettingLink("Share diagnostics", Icons.Filled.BugReport, 0x64748B, openDiagnostics)
+    }
+    if (showChanges) ForkChanges { showChanges = false }
+    if (showCredits) ProjectCredits { showCredits = false }
+}
+
+private fun wazeStatusSummary(status: Waze.Status): String {
+    if (!czechUi) return status.summary
+    if (status.types.isEmpty()) return "Žádná hlášení"
+    return status.types.entries.sortedByDescending { it.value }.joinToString(" · ") { (type, count) ->
+        val kind = when (type) {
+            "POLICE", "POLICEMAN" -> WazeAlert.Kind.POLICE
+            "ACCIDENT" -> WazeAlert.Kind.ACCIDENT
+            "HAZARD", "WEATHERHAZARD" -> WazeAlert.Kind.HAZARD
+            "ROAD_CLOSED" -> WazeAlert.Kind.CLOSURE
+            "JAM" -> WazeAlert.Kind.JAM
+            "CONSTRUCTION" -> WazeAlert.Kind.ROADWORKS
+            else -> null
+        }
+        "$count ${kind?.let { wazeLabel(it, count) } ?: "ostatní"}"
     }
 }
 
@@ -1084,28 +1280,26 @@ private fun WazeSettings() {
         WazeAlert.Kind.ROADWORKS to "Roadworks", WazeAlert.Kind.CLOSURE to "Road closures", WazeAlert.Kind.JAM to "Traffic jams reported by drivers",
     )
     val ages = listOf(30 to "30 minutes", 60 to "1 hour", 120 to "2 hours", 240 to "4 hours", 0 to "Keep them all")
-    fun whenText(at: Long): String { val m = ((System.currentTimeMillis() - at) / 60_000).toInt(); return if (m < 1) "just now" else "$m min ago" }
-    val connection: Pair<String, Color> = Waze.lastStatus?.let { st ->
-        val w = whenText(st.atMillis)
-        when (st.code) {
-            200 -> "Closures working: ${st.count} reports, $w" to hex(0x188038)
-            0 -> "Closures: no connection ($w)" to hex(0xF59E0B)
-            401, 403 -> "Closures: Waze turned Kite away ($w). It may work again later." to Color.Red
-            -1 -> "Closures: Waze sent something Kite can't read ($w)" to Color.Red
-            else -> "Closures: Waze error ${st.code} ($w)" to hex(0xF59E0B)
+    fun whenText(at: Long): String {
+        val minutes = ((System.currentTimeMillis() - at) / 60_000).toInt()
+        return if (minutes < 1) kt("just now", "právě teď") else kt("$minutes min ago", "před $minutes min")
+    }
+    fun statusText(status: Waze.Status?, closures: Boolean): Pair<String, Color> {
+        val label = if (closures) kt("Closures", "Uzavírky") else kt("Driver reports", "Hlášení řidičů")
+        if (status == null) return "$label · " + kt("Checked at city zoom", "Kontrola po přiblížení na město") to Color.Gray
+        val time = whenText(status.atMillis)
+        val (message, color) = when (status.code) {
+            200 -> (if (closures) kt("Reports: ${status.count}", "Počet hlášení: ${status.count}") else wazeStatusSummary(status)) to hex(0x188038)
+            0 -> kt("No connection", "Bez připojení") to hex(0xF59E0B)
+            401, 403 -> kt("Waze declined the request", "Waze požadavek odmítl") to Color.Red
+            440 -> kt("Reconnecting to Waze", "Obnovuje se připojení k Waze") to hex(0xF59E0B)
+            -1 -> kt("Unreadable response from Waze", "Odpověď Waze se nepodařilo přečíst") to Color.Red
+            else -> kt("Waze error ${status.code}", "Chyba Waze ${status.code}") to hex(0xF59E0B)
         }
-    } ?: ("Closures: checked once you open the map at city zoom" to Color.Gray)
-    val live: Pair<String, Color> = WazeLive.lastStatus?.let { st ->
-        val w = whenText(st.atMillis)
-        when (st.code) {
-            200 -> "Driver reports working: ${st.summary}, $w" to hex(0x188038)
-            0 -> "Driver reports: no connection ($w)" to hex(0xF59E0B)
-            401 -> "Driver reports: Waze turned Kite away ($w). It may work again later." to Color.Red
-            440 -> "Driver reports: reconnecting to Waze ($w)" to hex(0xF59E0B)
-            -1 -> "Driver reports: Waze sent something Kite can't read ($w)" to Color.Red
-            else -> "Driver reports: Waze error ${st.code} ($w)" to hex(0xF59E0B)
-        }
-    } ?: ("Driver reports: checked once you open the map at city zoom" to Color.Gray)
+        return "$label · $message · $time" to color
+    }
+    val connection = statusText(Waze.lastStatus, closures = true)
+    val live = statusText(WazeLive.lastStatus, closures = false)
 
     SettingsGroup(footer = if (s.noGoogle) "Off while \"Use Kite without Google\" is on, since Waze belongs to Google."
         else "Kite asks Waze for drivers' reports the way the Waze app does, for the map on screen and along your route, with an anonymous account Waze makes for it (no name, email or phone). Closures also come from the Waze live map. Waze sees roughly where you are, anonymously. It doesn't allow other apps to do this, so it may stop working one day.") {
@@ -1113,7 +1307,7 @@ private fun WazeSettings() {
     }
     if (s.wazeOn) {
         // What the hidden live map page saw, to send to whoever looks into it.
-        SettingsGroup("Connection", footer = Waze.lastStatus?.takeIf { it.code != 200 }?.let { "Details: " + WazeWeb.note }) {
+        SettingsGroup("Connection", footer = Waze.lastStatus?.takeIf { it.code != 200 }?.let { kt("Details", "Podrobnosti") + " · " + WazeWeb.note }) {
             for ((text, color) in listOf(connection, live)) {
                 Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(Modifier.size(10.dp).clip(CircleShape).background(color))
@@ -1123,8 +1317,8 @@ private fun WazeSettings() {
             Waze.lastStatus?.takeIf { it.code == 200 }?.let { st ->
                 // What Waze actually sent, so it's easy to see if a kind has gone missing.
                 Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-                    Text("Closures, last answer", fontSize = KType.subheadline, color = primaryText, modifier = Modifier.weight(1f))
-                    Text(st.summary, fontSize = KType.subheadline, color = secondaryText)
+                    Text(localizeLabel("Closures, last answer"), fontSize = KType.subheadline, color = primaryText, modifier = Modifier.weight(1f))
+                    Text(wazeStatusSummary(st), fontSize = KType.subheadline, color = secondaryText)
                 }
             }
         }
@@ -1151,12 +1345,12 @@ private fun WazeSettings() {
                 ToggleRow("Police risk score while driving", null, 0, s.policeRisk) { s.policeRisk = it }
                 HorizontalDivider()
                 Row(Modifier.padding(horizontal = 14.dp, vertical = 14.dp)) {
-                    Text("Police reports remembered", fontSize = KType.body, color = primaryText, modifier = Modifier.weight(1f))
+                    Text(localizeLabel("Police reports remembered"), fontSize = KType.body, color = primaryText, modifier = Modifier.weight(1f))
                     Text("$remembered", color = secondaryText)
                 }
                 if (remembered > 0) {
                     HorizontalDivider()
-                    Text("Forget them all", fontSize = KType.body, color = Vela.closed, modifier = Modifier.fillMaxWidth().tap { confirmClear = true }.padding(14.dp))
+                    Text(localizeLabel("Forget them all"), fontSize = KType.body, color = Vela.closed, modifier = Modifier.fillMaxWidth().tap { confirmClear = true }.padding(14.dp))
                 }
             }
         }
@@ -1167,8 +1361,8 @@ private fun WazeSettings() {
     if (confirmClear) {
         AlertDialog(onDismissRequest = { confirmClear = false },
             text = { Text("Forget the $remembered police reports Kite remembered? The risk score starts again from nothing.") },
-            confirmButton = { TextButton({ WazeHistory.clear(); remembered = 0; confirmClear = false }) { Text("Forget them", color = Vela.closed) } },
-            dismissButton = { TextButton({ confirmClear = false }) { Text("Cancel") } })
+            confirmButton = { TextButton({ WazeHistory.clear(); remembered = 0; confirmClear = false }) { Text(localizeLabel("Forget them"), color = Vela.closed) } },
+            dismissButton = { TextButton({ confirmClear = false }) { Text(localizeLabel("Cancel")) } })
     }
 }
 
@@ -1253,7 +1447,7 @@ fun PlacePicker(model: AppModel, kind: PickKind) {
                         Box(Modifier.size(40.dp).clip(CircleShape).background(Vela.routeBlue.copy(alpha = if (can) 1f else 0.4f)), contentAlignment = Alignment.Center) {
                             Icon(Icons.Filled.MyLocation, null, tint = Color.White, modifier = Modifier.size(20.dp))
                         }
-                        Text("Use where I am now", fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = primaryText.copy(alpha = if (can) 1f else 0.4f), modifier = Modifier.weight(1f))
+                        Text(localizeLabel("Use where I am now"), fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = primaryText.copy(alpha = if (can) 1f else 0.4f), modifier = Modifier.weight(1f))
                         if (locating) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     }
                     Text(if (model.location.denied) "Location is off for Kite, so type the address instead." else "Or type the address or postcode above.",
@@ -1275,7 +1469,7 @@ fun PlacePicker(model: AppModel, kind: PickKind) {
             } else if (searching) {
                 item {
                     Row(Modifier.padding(18.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp); Text("Searching…", color = secondaryText)
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp); Text(localizeLabel("Searching…"), color = secondaryText)
                     }
                 }
             } else item {

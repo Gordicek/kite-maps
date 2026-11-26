@@ -91,6 +91,25 @@ internal class NearLine(val line: List<LatLng>, cum0: DoubleArray? = null) {
 
 private fun isEnd(m: Maneuver) = m.type == ManeuverType.DEPART || m.type == ManeuverType.ARRIVE
 
+/** Both sides of a borrowed junction must follow the displayed road, in the same direction. */
+internal fun StepMerge.sameJunction(
+    source: List<LatLng>, sourceCumulative: DoubleArray, sourceAt: Double,
+    target: List<LatLng>, targetCumulative: DoubleArray, targetAt: Double,
+): Boolean {
+    val distance = minOf(18.0, sourceAt, targetAt, sourceCumulative.last() - sourceAt, targetCumulative.last() - targetAt)
+    if (distance < 7) return false
+    val sourceBefore = Geo.point(source, sourceAt - distance, sourceCumulative)
+    val sourceAfter = Geo.point(source, sourceAt + distance, sourceCumulative)
+    val targetBefore = Geo.point(target, targetAt - distance, targetCumulative)
+    val targetAfter = Geo.point(target, targetAt + distance, targetCumulative)
+    val sourceJunction = Geo.point(source, sourceAt, sourceCumulative)
+    val targetJunction = Geo.point(target, targetAt, targetCumulative)
+    return sourceJunction.distanceTo(targetJunction) <= 16 &&
+        sourceBefore.distanceTo(targetBefore) <= 17 && sourceAfter.distanceTo(targetAfter) <= 17 &&
+        Geo.diff(Geo.bearing(sourceBefore, sourceJunction), Geo.bearing(targetBefore, targetJunction)) < 40 &&
+        Geo.diff(Geo.bearing(sourceJunction, sourceAfter), Geo.bearing(targetJunction, targetAfter)) < 40
+}
+
 /**
  * When no open-router route runs on Google's roads all the way: its steps wherever it does, and
  * Google's own steps on the stretches where it went its own way (150 m either side of them).
@@ -131,7 +150,8 @@ fun StepMerge.adoptPiecewise(candidates: List<Route>, google: List<Maneuver>, li
             val p = near.project(s.location)
             if (!(p.offset < 40 && p.along >= last - 30 && p.along < total - 5) || onBad(p.along)) continue
             // The open route around the step runs on the line too, not just the step's own point.
-            val oa = Geo.project(s.location, o.polyline, oc).along
+            val oa = onO.project(s.location).along
+            if (!sameJunction(o.polyline, oc, oa, line, cum, p.along)) continue
             var d = max(0.0, oa - 150)
             var close = true
             while (d <= min(oc.last(), oa + 150)) {

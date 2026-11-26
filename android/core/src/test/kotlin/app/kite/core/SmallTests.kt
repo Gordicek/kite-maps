@@ -29,6 +29,18 @@ class DiagnosticZipTests {
 
 class MapLinksTests {
     private fun target(s: String) = MapLinks.link(s)?.let { MapLinks.parse(it) }
+    @Test fun importsGoogleDirectionsWithItsOriginAndOrderedStops() {
+        val link = "https://www.google.com/maps/dir/?api=1&origin=Sliema+Ferries,+The+Strand,+Malta" +
+            "&destination=Surfside,+71+Tower+Road,+Sliema,+Malta&waypoints=Panoramic+View+of+Valletta,+Tigne+Point,+Sliema,+Malta" +
+            "%7CTigne+Point,+Sliema,+Malta%7CSliema+Point+Battery,+Sliema,+Malta&travelmode=walking"
+        val route = assertIs<MapLinks.Target.RoutePlan>(target(link))
+        assertEquals("Sliema Ferries, The Strand, Malta", route.origin)
+        assertEquals("Surfside, 71 Tower Road, Sliema, Malta", route.destination)
+        assertEquals(listOf("Panoramic View of Valletta, Tigne Point, Sliema, Malta", "Tigne Point, Sliema, Malta",
+            "Sliema Point Battery, Sliema, Malta"), route.waypoints)
+        assertEquals(TravelMode.WALK, route.mode)
+    }
+
     private fun spot(t: MapLinks.Target?, lat: Double, lng: Double, name: String? = null) {
         val s = t as? MapLinks.Target.Spot ?: fail("not a spot: $t")
         assertEquals(lat, s.at.lat, 0.001); assertEquals(lng, s.at.lng, 0.001)

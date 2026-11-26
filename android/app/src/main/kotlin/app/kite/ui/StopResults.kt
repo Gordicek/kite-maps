@@ -47,7 +47,7 @@ internal fun StopResultsPanel(
         }
     }
 
-    BottomSheet(detent, setDetent, height, peekHeight = 104.dp, topClearance = 68.dp, opaque = true, allowPeek = false,
+    BottomSheet(detent, setDetent, height, peekHeight = 104.dp, topClearance = 68.dp, opaque = true, allowPeek = false, edgeToEdge = true,
         header = {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -61,14 +61,14 @@ internal fun StopResultsPanel(
                 IconButton({ setDetent(if (detent == SheetDetent.FULL) SheetDetent.HALF else SheetDetent.FULL) }) {
                     Icon(if (detent == SheetDetent.FULL) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess, "Resize results")
                 }
-                TextButton(close) { Text("Map") }
+                TextButton(close) { Text(localizeLabel("Map")) }
             }
             if (detent != SheetDetent.PEEK) Box(Modifier.padding(start = 16.dp, top = 5.dp, bottom = 8.dp)) {
                 FilterChipLabel("Open now", onlyOpen, menu = false) { setOnlyOpen(!onlyOpen) }
             }
         }, content = {
             if (detent != SheetDetent.PEEK) LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().navigationBarsPadding(),
                 state = list,
                 contentPadding = PaddingValues(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -160,9 +160,9 @@ internal fun NavigationPlaceCard(model: AppModel, place: Place, modifier: Modifi
         StopResultCard(search, candidate, null, expanded, toggle = { expanded = !expanded }, footer = {
             Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                TextButton({ model.showNavigationPlace(null) }) { Text("Close") }
+                TextButton({ model.showNavigationPlace(null) }) { Text(localizeLabel("Close")) }
                 val canAdd = !nav.rerouting && nav.stops.size < 8 && nav.stops.none(place::matchesNearby) && !nav.destination.matchesNearby(place)
-                Button({ model.addNavigationPlace(place) }, enabled = canAdd) { Text("Add as next stop") }
+                Button({ model.addNavigationPlace(place) }, enabled = canAdd) { Text(localizeLabel("Add as next stop")) }
             }
         })
     }
@@ -173,7 +173,7 @@ private fun StopMetric(icon: ImageVector, label: String) {
     Row(Modifier.background(interfaceSurface, CircleShape).padding(horizontal = 7.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, Modifier.size(13.dp), tint = interfaceAccentText)
-        Text(label, fontSize = KType.caption2, fontWeight = FontWeight.SemiBold, color = primaryText)
+        Text(localizeLabel(label), fontSize = KType.caption2, fontWeight = FontWeight.SemiBold, color = primaryText)
     }
 }
 
@@ -193,11 +193,11 @@ private fun StopResultDetails(
         HorizontalDivider(color = secondaryText.copy(alpha = 0.15f))
         if (photos.isNotEmpty()) {
             PhotoStrip(photos, height = 100.dp)
-            if (photos.any(::isGooglePhoto)) Text("Photos from Google Maps", fontSize = KType.caption2, color = secondaryText)
+            if (photos.any(::isGooglePhoto)) Text(localizeLabel("Photos from Google Maps"), fontSize = KType.caption2, color = secondaryText)
         } else if (loadingPhotos) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                Text("Loading photos…", fontSize = KType.caption, color = secondaryText)
+                Text(localizeLabel("Loading photos…"), fontSize = KType.caption, color = secondaryText)
             }
         }
         summary?.let { Text(it, fontSize = KType.footnote, color = primaryText, maxLines = 4, overflow = TextOverflow.Ellipsis) }
@@ -216,15 +216,15 @@ private fun StopResultDetails(
         place.address?.let { PlaceInfoCard(Icons.Outlined.Place, "Address", it) }
         if (place.hours.isNotEmpty()) OpeningHoursCard(place, hoursOpen) { hoursOpen = !hoursOpen }
         place.phone?.let { phone -> PlaceInfoCard(Icons.Outlined.Phone, "Phone", phone, telUrl(phone)?.let { url -> { context.open(url) } }) }
-        website?.let { PlaceInfoCard(Icons.Filled.Language, "Website", it, webUrl(place.website)?.let { url -> { context.open(url) } }) }
+        website?.let { PlaceInfoCard(Icons.Filled.Language, localizeLabel("Website"), it, webUrl(place.website)?.let { url -> { context.open(url) } }) }
         if (summary == null && photos.isEmpty() && place.address.isNullOrBlank() && place.hours.isEmpty() &&
             place.phone.isNullOrBlank() && website == null && !loadingPhotos && !FuelPrices.isStation(place)) {
-            Text("No additional details available", fontSize = KType.caption, color = secondaryText)
+            Text(localizeLabel("No additional details available"), fontSize = KType.caption, color = secondaryText)
         }
         if (showOnMap != null) OutlinedButton(onClick = showOnMap, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Outlined.Map, null, Modifier.size(18.dp))
             Spacer(Modifier.width(7.dp))
-            Text("Show on map")
+            Text(localizeLabel("Show on map"))
         }
     }
 }

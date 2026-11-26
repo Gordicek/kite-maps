@@ -2,6 +2,11 @@
 
 package app.kite.ui
 
+import androidx.compose.ui.res.stringResource
+import app.kite.R
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import kotlinx.coroutines.flow.drop
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -11,6 +16,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -40,6 +46,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
@@ -50,6 +57,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -97,6 +106,18 @@ fun DirectionsOverlay(model: AppModel, showMapbox: Boolean) {
             Box(Modifier.statusBarsPadding().padding(top = 6.dp).onSizeChanged { cardHeight = with(density) { it.height.toDp() } }) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     EndpointsCard(model, d)
+                    if (transit && model.transitStepPreview?.tripId == d.pickedTrip?.id && model.transitStepPreview != null) {
+                        AssistChip(model::frameRoute, label = { Text(kt("Whole trip", "Celá trasa")) },
+                            leadingIcon = { Icon(Icons.Filled.Route, null) },
+                            colors = AssistChipDefaults.assistChipColors(containerColor = interfaceSurface))
+                    }
+                    model.plannedStep?.let { step ->
+                        AssistChip(model::clearPlannedStep, label = {
+                            Text(Banner.headline(step), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }, leadingIcon = { Icon(maneuverIcon(step.type), null) },
+                            trailingIcon = { Icon(Icons.Filled.Close, kt("Show whole route", "Zobrazit celou trasu")) },
+                            colors = AssistChipDefaults.assistChipColors(containerColor = interfaceSurface))
+                    }
                     model.pathSectionHighlight?.takeIf { it.first == d.route?.id }?.second?.let { section ->
                     AssistChip(onClick = { model.pathSectionHighlight = null },
                         label = { Text("${Fmt.distance(section.from)} – ${Fmt.distance(section.to)}") },
@@ -127,7 +148,7 @@ fun EndpointsCard(model: AppModel, state: DirectionsState) {
     if (compact) {
         Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().glass(CircleShape, solid = true).padding(end = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            IconButton(model::closeDirections) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+            IconButton(model::closeDirections) { Icon(Icons.AutoMirrored.Filled.ArrowBack, localizeLabel("Back")) }
             Text("${if (state.missingOrigin) "Choose start" else points.first().waypointName()} → ${points.last().waypointName()}", color = primaryText,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).tap { compact = false })
             IconButton({ compact = false }) { Icon(Icons.Filled.ExpandMore, "Expand route places") }
@@ -137,7 +158,7 @@ fun EndpointsCard(model: AppModel, state: DirectionsState) {
     Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().glass(RoundedCornerShape(24.dp), solid = true).padding(8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         IconButton(model::closeDirections) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = primaryText)
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, localizeLabel("Back"), tint = primaryText)
         }
         Column(Modifier.weight(1f)) {
             if (state.reversed) Endpoint(Icons.Outlined.Circle, Vela.tealLight, points.first().waypointName())
@@ -153,7 +174,7 @@ fun EndpointsCard(model: AppModel, state: DirectionsState) {
             }
             if (!state.transit && state.stops.size < 8) TextButton({ model.addingStop = true }) {
                 Icon(Icons.Filled.Add, null)
-                Text("Add stop")
+                Text(stringResource(R.string.add_stop_title))
             }
         }
         Column {
@@ -289,26 +310,26 @@ private fun RouteEditor(model: AppModel, state: DirectionsState, close: () -> Un
                     { close(); model.addingStop = true }, Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Icon(Icons.Filled.AddLocationAlt, null, Modifier.size(19.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Add stop")
+                    Text(stringResource(R.string.add_stop_title))
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TextButton({ if (state.missingOrigin) close(); model.reverseDirections() }) { Text("Reverse") }
-                    TextButton({ name = draft?.name.orEmpty(); naming = true }, enabled = draft != null) { Text("Save route") }
-                    TextButton({ draft?.let { ctx.share(it.shareText()) } }, enabled = draft != null) { Text("Share route") }
+                    TextButton({ if (state.missingOrigin) close(); model.reverseDirections() }) { Text(localizeLabel("Reverse")) }
+                    TextButton({ name = draft?.name.orEmpty(); naming = true }, enabled = draft != null) { Text(localizeLabel("Save route")) }
+                    TextButton({ draft?.let { ctx.share(it.shareText()) } }, enabled = draft != null) { Text(localizeLabel("Share route")) }
                 }
             }
         }
     }
     if (naming) AlertDialog(
         onDismissRequest = { naming = false },
-        title = { Text("Save route") },
-        text = { OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Name") }) },
+        title = { Text(localizeLabel("Save route")) },
+        text = { OutlinedTextField(name, { name = it }, singleLine = true, label = { Text(localizeLabel("Name")) }) },
         confirmButton = { TextButton({
             model.routePlan(name)?.let { AppSettings.savedPlans = listOf(it) + AppSettings.savedPlans }
             naming = false
             close()
-        }, enabled = name.isNotBlank()) { Text("Save") } },
-        dismissButton = { TextButton({ naming = false }) { Text("Cancel") } })
+        }, enabled = name.isNotBlank()) { Text(localizeLabel("Save")) } },
+        dismissButton = { TextButton({ naming = false }) { Text(localizeLabel("Cancel")) } })
 }
 
 /**
@@ -345,23 +366,23 @@ fun AvoidRoadCard(model: AppModel, state: DirectionsState) {
             // Two lines rather than a cut-off name ("Avoid Russell Boule…").
             Text("Avoid ${ask.road ?: "this road"}?", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = primaryText, maxLines = 2, lineHeight = 20.sp,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Text("Cancel", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = secondaryText, modifier = Modifier.tap { model.avoidAsk = null }.padding(6.dp))
-            Box(Modifier.height(40.dp).clip(CircleShape).background(Vela.accent(dark)).tap { model.avoidRoad() }.padding(horizontal = 16.dp),
+            Text(localizeLabel("Cancel"), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = secondaryText, modifier = Modifier.tap { model.avoidAsk = null }.padding(6.dp))
+            Box(Modifier.height(40.dp).clip(CircleShape).background(interfaceAccent).tap { model.avoidRoad() }.padding(horizontal = 16.dp),
                 contentAlignment = Alignment.Center) {
-                Text("Avoid", fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, color = Vela.onAccent(dark))
+                Text(localizeLabel("Avoid"), fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, color = interfaceOnAccent)
             }
         }
         model.avoidBusy -> Row(Modifier.height(46.dp).glass(CircleShape).padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-            Text("Finding a way round…", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = primaryText)
+            Text(localizeLabel("Finding a way round…"), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = primaryText)
         }
         state.avoidNames.isNotEmpty() && state.mode == TravelMode.DRIVE && !state.transit -> Row(Modifier.height(44.dp).glass(CircleShape).padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(Icons.Filled.Block, null, tint = Vela.closed, modifier = Modifier.size(18.dp))
             Text("Avoiding ${avoidNames(state.avoidNames)}", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = primaryText,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-            Text("Undo", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = Vela.accentText(dark), modifier = Modifier.tap { model.undoAvoid() })
+            Text(localizeLabel("Undo"), fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = interfaceAccentText, modifier = Modifier.tap { model.undoAvoid() })
         }
     }
 }
@@ -379,10 +400,11 @@ private fun Endpoint(icon: ImageVector, color: Color, text: String) {
     }
 }
 
+@Composable
 fun delayColor(r: Route, dark: Boolean): Color = when (r.delayLevel) {
     2 -> if (dark) Vela.closedDark else Vela.closed
     1 -> Color(0xFFE37400)
-    else -> Vela.accentText(dark)
+    else -> interfaceAccentText
 }
 
 /** Route cards show when there's a choice to make: up to three, the picked one lit. */
@@ -409,11 +431,11 @@ private fun RouteOptionsButton(model: AppModel) {
     val s = AppSettings
     var menu by remember { mutableStateOf(false) }
     Box {
-        Box(Modifier.size(48.dp).clip(CircleShape).background(Vela.chip(dark)).tap { menu = true }, contentAlignment = Alignment.Center) {
+        Box(Modifier.size(48.dp).clip(CircleShape).background(interfaceChip).tap { menu = true }, contentAlignment = Alignment.Center) {
             Icon(Icons.Filled.Tune, "Route options", tint = primaryText, modifier = Modifier.size(22.dp))
         }
         DropdownMenu(menu, { menu = false }) {
-            DropdownMenuItem(text = { Text("Avoid tolls") }, trailingIcon = { Checkbox(s.avoidTolls, null) },
+            DropdownMenuItem(text = { Text(localizeLabel("Avoid tolls")) }, trailingIcon = { Checkbox(s.avoidTolls, null) },
                 onClick = { s.avoidTolls = !s.avoidTolls; model.reloadRoutes() })
             DropdownMenuItem(text = { Text(if (Fmt.yards) "Avoid motorways" else "Avoid highways") }, trailingIcon = { Checkbox(s.avoidHighways, null) },
                 onClick = { s.avoidHighways = !s.avoidHighways; model.reloadRoutes() })
@@ -426,7 +448,7 @@ private fun GoButton(model: AppModel, pending: Boolean = false) {
     val dark = LocalDark.current
     Button(model::startNavigation, Modifier.fillMaxWidth().heightIn(min = 60.dp), enabled = !pending,
         colors = ButtonDefaults.buttonColors(containerColor = interfaceAccent, contentColor = interfaceOnAccent,
-            disabledContainerColor = Vela.chip(dark), disabledContentColor = primaryText)) {
+            disabledContainerColor = interfaceChip, disabledContentColor = primaryText)) {
         if (pending) CircularProgressIndicator(Modifier.size(21.dp), strokeWidth = 2.dp, color = interfaceAccentText)
         else Icon(Icons.Filled.Navigation, null, modifier = Modifier.size(25.dp))
         Spacer(Modifier.width(10.dp))
@@ -451,7 +473,9 @@ private fun ClosingLine(d: DirectionsState) {
 private fun RouteCard(r: Route, on: Boolean, pick: () -> Unit) {
     val dark = LocalDark.current
     val fg = if (on) interfaceOnAccent else primaryText
-    Row(Modifier.fillMaxWidth().heightIn(min = 62.dp).clip(RoundedCornerShape(20.dp)).background(if (on) interfaceAccent else Vela.chip(dark))
+    val tone by androidx.compose.animation.animateColorAsState(
+        if (on) interfaceAccent else interfaceChip, label = "route selection")
+    Row(Modifier.fillMaxWidth().heightIn(min = 62.dp).clip(RoundedCornerShape(20.dp)).background(tone)
         .tap(pick).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(r.summary?.let { "via $it" } ?: Fmt.distance(r.distanceMeters), fontSize = 19.sp, fontWeight = FontWeight.Bold, color = fg,
@@ -461,12 +485,12 @@ private fun RouteCard(r: Route, on: Boolean, pick: () -> Unit) {
                     fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = if (on) fg else delayColor(r, dark), maxLines = 1, overflow = TextOverflow.Ellipsis)
             } else {
                 Text(if (r.summary == null) "Arrive ${Fmt.arrival(r.durationSeconds)}" else Fmt.distance(r.distanceMeters), fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold, color = if (on) fg.copy(alpha = 0.85f) else Vela.muted(dark), maxLines = 1)
+                    fontWeight = FontWeight.SemiBold, color = if (on) fg.copy(alpha = 0.85f) else secondaryText, maxLines = 1)
             }
         }
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(Fmt.duration(r.durationSeconds), fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = fg, maxLines = 1, lineHeight = 26.sp)
-            Text("arrive ${Fmt.arrival(r.durationSeconds)}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = fg.copy(alpha = 0.8f), maxLines = 1)
+            Text(kt("arrive ${Fmt.arrival(r.durationSeconds)}", "příjezd v ${Fmt.arrival(r.durationSeconds)}"), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = fg.copy(alpha = 0.8f), maxLines = 1)
         }
     }
 }
@@ -482,8 +506,10 @@ fun TripHeader(model: AppModel) {
         if (d.transit) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.weight(1f)) {
-                    Text("Public transport", color = primaryText, fontWeight = FontWeight.Bold, fontSize = KType.headline)
-                    Text(d.destination.name, color = secondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(localizeLabel("Public transport"), color = primaryText, fontWeight = FontWeight.Bold, fontSize = KType.headline)
+                    val trip = d.pickedTrip
+                    Text(if (trip == null) d.destination.name else listOfNotNull(Fmt.duration(trip.durationSeconds), trip.arrive?.let { Fmt.time(Date(it)) }).joinToString(" · "),
+                        color = secondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 if (d.pickedTrip != null) IconButton({
                     model.detent = SheetDetent.HALF
@@ -503,8 +529,8 @@ fun TripHeader(model: AppModel) {
                 val r = d.route
                 when {
                     d.missingOrigin -> Column {
-                        Text("Choose where to start", color = primaryText, fontWeight = FontWeight.Bold)
-                        TextButton({ model.pickingOrigin = true }) { Text("Set starting point") }
+                        Text(localizeLabel("Choose where to start"), color = primaryText, fontWeight = FontWeight.Bold)
+                        TextButton({ model.pickingOrigin = true }) { Text(localizeLabel("Set starting point")) }
                     }
                     d.waitingForLocation -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(when {
@@ -513,20 +539,20 @@ fun TripHeader(model: AppModel) {
                             else -> "Waiting for your location…"
                         }, fontSize = KType.subheadline, fontWeight = FontWeight.SemiBold, color = primaryText)
                         if (model.location.denied || model.location.systemOff)
-                            TextButton({ LocationService.openSettings(ctx) }) { Text("Location settings") }
+                            TextButton({ LocationService.openSettings(ctx) }) { Text(localizeLabel("Location settings")) }
                     }
                     r != null -> Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(Fmt.duration(r.durationSeconds), fontSize = 44.sp, fontWeight = FontWeight.ExtraBold, color = delayColor(r, dark),
                             maxLines = 1, lineHeight = 48.sp)
-                        Text("${Fmt.distance(r.distanceMeters)} · arrive ${Fmt.arrival(r.durationSeconds)}", fontSize = 17.sp,
-                            fontWeight = FontWeight.Medium, color = Vela.muted(dark), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(kt("${Fmt.distance(r.distanceMeters)} · arrive ${Fmt.arrival(r.durationSeconds)}", "${Fmt.distance(r.distanceMeters)} · příjezd v ${Fmt.arrival(r.durationSeconds)}"), fontSize = 17.sp,
+                            fontWeight = FontWeight.Medium, color = secondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     d.mode in d.loading -> Row(Modifier.height(52.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 3.dp, color = Vela.accent(dark))
-                        Text("Finding routes…", fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = primaryText)
+                        CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 3.dp, color = interfaceAccent)
+                        Text(localizeLabel("Finding routes…"), fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = primaryText)
                     }
                     else -> Column(Modifier.heightIn(min = 52.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(d.errors[d.mode] ?: "No route found.", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Vela.muted(dark))
+                        Text(d.errors[d.mode] ?: "No route found.", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = secondaryText)
                         if (model.location.denied) PillButton("Open Settings", Icons.Filled.MyLocation, filled = true) { LocationService.openSettings(ctx) }
                         else if (d.errors[d.mode] != null) PillButton("Try again", Icons.Filled.Refresh) { model.reloadRoutes() }
                     }
@@ -564,7 +590,7 @@ fun ModeTabs(model: AppModel, state: DirectionsState) {
 private fun RowScope.ModeTile(icon: ImageVector, on: Boolean, loading: Boolean, time: String?, onClick: () -> Unit) {
     val dark = LocalDark.current
     val fg = if (on) interfaceOnAccent else primaryText
-    Column(Modifier.weight(1f).heightIn(min = 62.dp).clip(RoundedCornerShape(18.dp)).background(if (on) interfaceAccent else Vela.chip(dark))
+    Column(Modifier.weight(1f).heightIn(min = 62.dp).clip(RoundedCornerShape(18.dp)).background(if (on) interfaceAccent else interfaceChip)
         .tap(onClick), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically)) {
         Icon(icon, null, tint = fg, modifier = Modifier.size(24.dp))
         if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = fg)
@@ -586,27 +612,33 @@ fun TripBody(model: AppModel) {
                 routeCards(d).forEachIndexed { index, candidate ->
                     RouteCard(candidate, candidate.id == r.id) { model.selectRoute(index) }
                 }
-                if (r.mode == TravelMode.DRIVE) RouteCharges(r)
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    val best = d.current.minOfOrNull { it.durationSeconds } ?: r.durationSeconds
-                    val lead = if (r.durationSeconds <= best + 30) (if (r.trafficSeconds != null) "Fastest route now" else "Best route") else "Slower route"
-                    Text(listOfNotNull(lead, r.summary?.let { "via $it" }).joinToString(" · "), fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = primaryText)
-                    if (r.mode == TravelMode.DRIVE && r.trafficSeconds != null) {
-                        Text(if (r.delayLevel == 0) "Traffic is light" else "${Fmt.duration(r.durationSeconds - r.typicalSeconds)} slower than usual",
-                            fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = delayColor(r, dark))
-                    }
-                    if (r.mode == TravelMode.DRIVE) Box(Modifier.padding(top = 2.dp)) { RouteTolls(r) }
-                    if (r.mode == TravelMode.DRIVE) Box(Modifier.padding(top = 2.dp)) { ArrivalRows(model, d) }
-                    if (r.mode == TravelMode.DRIVE && d.avoidNames.isEmpty()) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Icon(Icons.Filled.TouchApp, null, tint = secondaryText, modifier = Modifier.size(16.dp))
-                            Text("Tap a road on the route to avoid it", fontSize = 15.sp, color = secondaryText)
+                if (r.mode == TravelMode.DRIVE) {
+                    Surface(color = interfaceSurface, shape = RoundedCornerShape(22.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val best = d.current.minOfOrNull { it.durationSeconds } ?: r.durationSeconds
+                            val fast = r.durationSeconds <= best + 30
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Icon(Icons.Filled.AltRoute, null, tint = interfaceAccentText)
+                                Column {
+                                    Text(if (fast) kt("Fastest route", "Nejrychlejší trasa") else kt("Alternative route", "Alternativní trasa"),
+                                        fontWeight = FontWeight.Bold, color = primaryText)
+                                    r.summary?.let { Text(it, color = secondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                                }
+                            }
+                            if (r.trafficSeconds != null) Text(if (r.delayLevel == 0) kt("Traffic is light", "Provoz je plynulý")
+                                else "+${Fmt.duration((r.durationSeconds - r.typicalSeconds).coerceAtLeast(0.0))} · " + kt("Traffic", "Provoz"),
+                                color = delayColor(r, dark), fontWeight = FontWeight.SemiBold)
+                            RouteTolls(r)
+                            RouteCharges(r)
+                            RouteWazeSummary(r, onShow = { model.showSpot(it.location) }, onFound = { model.routeReports = it })
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                Icon(Icons.Filled.TouchApp, null, tint = secondaryText, modifier = Modifier.size(17.dp))
+                                Text(localizeLabel("Tap a road on the route to avoid it"), fontSize = KType.caption, color = secondaryText)
+                            }
                         }
                     }
-                    if (r.mode == TravelMode.DRIVE) Box(Modifier.padding(top = 4.dp)) {
-                        RouteWazeSummary(r, onShow = { model.showSpot(it.location) }, onFound = { model.routeReports = it })
-                    }
-                    if (r.mode == TravelMode.DRIVE) Box(Modifier.padding(top = 6.dp)) { RouteLiveCams(model, r) }
+                    ArrivalRows(model, d)
+                    RouteLiveCams(model, r)
                 }
                 // More than three routes is rare; the ones past the cards stay reachable here.
                 if (d.current.size > 3) {
@@ -630,18 +662,25 @@ fun TripBody(model: AppModel) {
                         }
                     }
                 }
-                IconRow(Icons.Filled.Terrain, "Elevation and surface", trailing = "View") { model.openProfile(r) }
-                HorizontalDivider()
-                Text("Steps", fontSize = KType.headline, fontWeight = FontWeight.SemiBold, color = primaryText)
-                StepsList(r)
-                Row(Modifier.height(52.dp).clip(CircleShape).background(Vela.tonal(dark)).tap { ctx.share(d.destination.shareUrl) }.padding(horizontal = 20.dp),
+                Surface(color = interfaceSurface, shape = RoundedCornerShape(22.dp)) {
+                    Column {
+                        if (AppSettings.routeWeather) {
+                            RouteWeatherCard(r)
+                            HorizontalDivider(Modifier.padding(horizontal = 14.dp))
+                        }
+                        IconRow(Icons.Filled.Terrain, kt("Elevation and surface", "Převýšení a povrch"),
+                            trailing = kt("View", "Zobrazit")) { model.openProfile(r) }
+                    }
+                }
+                ExpandableSteps(r, onStep = model::previewPlannedStep)
+                Row(Modifier.height(52.dp).clip(CircleShape).background(interfaceTonal).tap { ctx.share(d.destination.shareUrl) }.padding(horizontal = 20.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Filled.Share, null, tint = Vela.onTonal(dark), modifier = Modifier.size(20.dp))
-                    Text("Share place", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Vela.onTonal(dark))
+                    Icon(Icons.Filled.Share, null, tint = interfaceOnTonal, modifier = Modifier.size(20.dp))
+                    Text(localizeLabel("Share place"), fontSize = 17.sp, fontWeight = FontWeight.Bold, color = interfaceOnTonal)
                 }
             }
             d.mode in d.loading -> Row(Modifier.padding(vertical = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp); Text("Finding routes…", color = secondaryText)
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp); Text(localizeLabel("Finding routes…"), color = secondaryText)
             }
             else -> Text(d.errors[d.mode] ?: "No route found.", color = secondaryText, modifier = Modifier.padding(vertical = 20.dp))
         }
@@ -659,12 +698,12 @@ fun RouteCharges(route: Route) {
         if (found.isNotEmpty() || RouteChargesDemo.charges.isEmpty()) charges = found
     }
     charges.forEach { c ->
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Vela.chip(dark)).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(interfaceChip).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Icon(if (c.zone) Icons.Filled.Eco else Icons.Filled.CurrencyPound, null,
                 tint = if (c.zone) Color(0xFF15803D) else Color(0xFFE37400), modifier = Modifier.size(28.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(if (c.zone) "Clean air zone on this route: ${c.name}" else "Charge on this route: ${c.name}", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = primaryText)
-                Text(c.note, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Vela.muted(dark), lineHeight = 19.sp)
+                Text(c.note, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = secondaryText, lineHeight = 19.sp)
             }
         }
     }
@@ -688,7 +727,7 @@ fun RouteTolls(route: Route) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Top) {
         if (t.isEmpty()) {
             Icon(Icons.Filled.CheckCircle, null, tint = Vela.open, modifier = Modifier.size(18.dp))
-            Text("No tolls on this route", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Vela.open)
+            Text(localizeLabel("No tolls on this route"), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Vela.open)
         } else {
             Icon(Icons.Filled.Warning, null, tint = Color(0xFFE37400), modifier = Modifier.size(18.dp))
             Text("No toll-free way found. This route uses ${tollList(t)}.", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFE37400))
@@ -709,8 +748,19 @@ object RouteChargesDemo { var charges: List<RoadCharge> = emptyList() }
 
 /** The steps worth saying, each with the length of the quiet name changes after it added on. */
 @Composable
-fun StepsList(route: Route, from: Int = 0) {
-    val shown = remember(route.id, from) {
+fun ExpandableSteps(route: Route, from: Int = 0, initiallyOpen: Boolean = false, onStep: (Maneuver) -> Unit) {
+    var opened by rememberSaveable(route.id) { mutableStateOf(initiallyOpen) }
+    Surface(color = interfaceSurface, shape = RoundedCornerShape(22.dp)) {
+        Column {
+            IconRow(Icons.Filled.FormatListNumbered, localizeLabel("Steps"), trailing = if (opened) "−" else "+") { opened = !opened }
+            if (opened) Box(Modifier.padding(horizontal = 12.dp)) { StepsList(route, from, onStep) }
+        }
+    }
+}
+
+@Composable
+fun StepsList(route: Route, from: Int = 0, onStep: ((Maneuver) -> Unit)? = null) {
+    val shown = remember(route.maneuvers, from) {
         val out = mutableListOf<Maneuver>()
         for (m in route.maneuvers.drop(from.coerceIn(0, route.maneuvers.size))) {
             if (m.silent && out.isNotEmpty()) out[out.size - 1] = out.last().copy(distanceMeters = out.last().distanceMeters + m.distanceMeters)
@@ -720,10 +770,12 @@ fun StepsList(route: Route, from: Int = 0) {
     }
     Column {
         shown.forEach { m ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            val action = if (onStep == null) Modifier else Modifier.clickable(
+                onClickLabel = localizeLabel("Show on map"), role = Role.Button, onClick = { onStep(m) })
+            Row(Modifier.fillMaxWidth().then(action).padding(vertical = 9.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Icon(maneuverIcon(m.type), null, tint = primaryText, modifier = Modifier.size(30.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(SpokenText.forScreen(m.instruction), fontSize = 18.sp, fontWeight = FontWeight.Medium, color = primaryText)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(Banner.headline(m), fontSize = 18.sp, fontWeight = FontWeight.Medium, color = primaryText)
                     m.laneHint?.let { Text(it, fontSize = KType.subheadline, color = secondaryText) }
                     if (m.distanceMeters > 0) Text(Fmt.distance(m.distanceMeters), fontSize = KType.subheadline, color = secondaryText)
                 }
@@ -749,10 +801,10 @@ fun TransitBody(model: AppModel, state: DirectionsState) {
         }
         if (kind != 0) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Time", fontSize = KType.subheadline, color = primaryText, modifier = Modifier.weight(1f))
+                Text(localizeLabel("Time"), fontSize = KType.subheadline, color = primaryText, modifier = Modifier.weight(1f))
                 Text(java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(Date(whenAt)),
                     fontSize = KType.subheadline, fontWeight = FontWeight.SemiBold, color = primaryText,
-                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Vela.chip(LocalDark.current)).tap {
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(interfaceChip).tap {
                         val c = Calendar.getInstance().apply { timeInMillis = whenAt }
                         DatePickerDialog(ctx, { _, y, mo, day ->
                             c.set(y, mo, day)
@@ -767,6 +819,18 @@ fun TransitBody(model: AppModel, state: DirectionsState) {
         }
     }
     if (state.missingOrigin) return
+    state.recommendedWalk?.let { walk ->
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(interfaceHighlight)
+            .tap(model::showRecommendedWalk).padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.AutoMirrored.Filled.DirectionsWalk, null, tint = interfaceOnHighlight)
+            Column(Modifier.weight(1f)) {
+                Text(localizeLabel("Fastest on foot"), fontWeight = FontWeight.Bold, color = interfaceOnHighlight)
+                Text("${Fmt.duration(walk.durationSeconds)} · ${Fmt.distance(walk.distanceMeters)}", color = interfaceOnHighlight)
+            }
+            Icon(Icons.Filled.ArrowForward, "Show walking route", tint = interfaceOnHighlight)
+        }
+    }
     val trips = state.trips
     var expandedTrip by rememberSaveable { mutableStateOf<String?>(null) }
     var bookmarkedTrip by rememberSaveable { mutableStateOf<String?>(null) }
@@ -807,14 +871,14 @@ fun TransitBody(model: AppModel, state: DirectionsState) {
                                 Text(if (t.id == bookmarkedTrip) "Saved for later" else "Save for later")
                             }
                         }
-                        if (expanded) TransitSteps(shown, live = live)
+                        if (expanded) TransitSteps(shown, live = live, onStep = model::previewTransitStep)
                     }
                 }
             }
-            Text("Timetables from Transitous", fontSize = KType.caption, color = secondaryText, modifier = Modifier.padding(top = 4.dp))
+            Text(localizeLabel("Timetables from Transitous"), fontSize = KType.caption, color = secondaryText, modifier = Modifier.padding(top = 4.dp))
         }
         trips == null -> Row(Modifier.padding(vertical = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp); Text("Finding transit…", color = secondaryText)
+            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp); Text(localizeLabel("Finding transit…"), color = secondaryText)
         }
         else -> Column(Modifier.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(state.tripsError ?: "No transit trips found.", color = secondaryText)
@@ -823,7 +887,7 @@ fun TransitBody(model: AppModel, state: DirectionsState) {
                 OutlinedButton({
                     fun coords(p: LatLng) = urlEnc("${p.lat.plain()},${p.lng.plain()}")
                     ctx.open("https://www.google.com/maps/dir/?api=1&origin=${coords(from)}&destination=${coords(to)}&travelmode=transit")
-                }) { Text("Check transit in Google Maps") }
+                }) { Text(localizeLabel("Check transit in Google Maps")) }
             }
         }
     }
@@ -863,31 +927,34 @@ fun TripRow(trip: TransitTrip, picked: Boolean, expanded: Boolean, liveUpdates: 
         }
         TransitTransferNotes(trip, liveUpdates)
         val transfers = when (trip.transfers) { 0 -> "Direct"; 1 -> "1 transfer"; else -> "${trip.transfers} transfers" }
-        Text("$transfers · ${Fmt.duration(trip.walkSeconds)} walking", fontSize = KType.caption, color = secondaryText)
+        Text("$transfers · ${Fmt.duration(trip.walkSeconds)} " + kt("walking", "pěšky"), fontSize = KType.caption, color = secondaryText)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             val first = trip.rides.firstOrNull()
             (live?.board?.departure ?: first?.depart)?.let { Text("${clock(it)} from ${first?.fromName.orEmpty()}", fontSize = KType.caption, color = secondaryText, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false)) }
             val delay = live?.board?.departureDelay ?: first?.delayMinutes
             when {
-                live?.cancelled == true -> Text("Disrupted", fontSize = KType.caption, color = Vela.closed)
+                live?.cancelled == true -> Text(localizeLabel("Disrupted"), fontSize = KType.caption, color = Vela.closed)
                 delay != null -> Text(transitDelay(delay), fontSize = KType.caption, color = if (delay > 0) Vela.closed else Vela.open)
             }
         }
         (live?.board?.platform ?: trip.rides.firstOrNull()?.calls?.firstOrNull()?.platform)
-            ?.takeIf(String::isNotBlank)?.let { Text("Platform $it", fontSize = KType.caption, fontWeight = FontWeight.Bold, color = interfaceAccentText) }
+            ?.takeIf(String::isNotBlank)?.let { Text(kt("Platform $it", "Nástupiště $it"), fontSize = KType.caption, fontWeight = FontWeight.Bold, color = interfaceAccentText) }
     }
 }
 
 @Composable
-fun TransitSteps(trip: TransitTrip, activeLeg: Int? = null, live: Map<String, TransitLive> = emptyMap()) {
+fun TransitSteps(trip: TransitTrip, activeLeg: Int? = null, live: Map<String, TransitLive> = emptyMap(),
+                 onStep: ((TransitLeg, LatLng?) -> Unit)? = null) {
     fun times(t: Long?, text: String) = t?.let { "${clock(it)}  $text" } ?: text
     Column(Modifier.padding(top = 5.dp)) {
         trip.legs.forEachIndexed { index, leg ->
             val accent = Color(0xFF000000 or leg.mapColor)
             val transfer = index > 0 && !leg.isWalk && trip.legs.take(index).any { !it.isWalk }
             var expanded by rememberSaveable(trip.id, index) { mutableStateOf(false) }
-            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            val action = if (onStep == null) Modifier else Modifier.clickable(
+                onClickLabel = localizeLabel("Show on map"), role = Role.Button, onClick = { onStep(leg, null) })
+            Row(Modifier.fillMaxWidth().then(action).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(Modifier.width(28.dp).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
                     Canvas(Modifier.fillMaxSize()) {
                         val x = size.width / 2
@@ -902,17 +969,17 @@ fun TransitSteps(trip: TransitTrip, activeLeg: Int? = null, live: Map<String, Tr
                 Column(Modifier.weight(1f).padding(bottom = 9.dp).clip(RoundedCornerShape(13.dp))
                     .background(if (index == activeLeg) interfaceGround else Color.Transparent).padding(8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (index == activeLeg) Text("Current leg", fontSize = KType.caption, color = interfaceAccentText)
+                    if (index == activeLeg) Text(localizeLabel("Current leg"), fontSize = KType.caption, color = interfaceAccentText)
                     if (leg.isWalk) {
                         val to = leg.toName.takeUnless { it.isBlank() || it == "END" } ?: "the destination"
-                        Text("Walk to $to", fontSize = KType.subheadline, fontWeight = FontWeight.Bold, color = primaryText)
+                        Text(kt("Walk to $to", "Pěšky na $to"), fontSize = KType.subheadline, fontWeight = FontWeight.Bold, color = primaryText)
                         Text("${Fmt.duration(leg.durationSeconds)} · ${Fmt.distance(leg.distanceMeters)}",
                             fontSize = KType.caption, color = secondaryText)
                     } else {
-                        if (transfer) Text("Transfer", fontSize = KType.caption, color = interfaceAccentText, fontWeight = FontWeight.Bold)
+                        if (transfer) Text(localizeLabel("Transfer"), fontSize = KType.caption, color = interfaceAccentText, fontWeight = FontWeight.Bold)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             LineChip(leg)
-                            leg.headsign?.let { Text("Toward $it", fontSize = KType.subheadline, color = primaryText, modifier = Modifier.weight(1f)) }
+                            leg.headsign?.let { Text(kt("Toward $it", "Směr $it"), fontSize = KType.subheadline, color = primaryText, modifier = Modifier.weight(1f)) }
                         }
                         val status = live[leg.tripId]
                         TransitStatus(leg, status)
@@ -922,7 +989,7 @@ fun TransitSteps(trip: TransitTrip, activeLeg: Int? = null, live: Map<String, Tr
                         val intermediate = leg.calls.drop(1).dropLast(1)
                         if (intermediate.isNotEmpty()) {
                             TextButton({ expanded = !expanded }, contentPadding = PaddingValues(horizontal = 4.dp)) {
-                                Text("${intermediate.size} intermediate stops")
+                                Text(kt("${intermediate.size} intermediate stops", "Mezilehlé zastávky · ${intermediate.size}"))
                                 Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null)
                             }
                             if (expanded) intermediate.forEach { call ->
@@ -930,7 +997,8 @@ fun TransitSteps(trip: TransitTrip, activeLeg: Int? = null, live: Map<String, Tr
                                 val delay = (updated.arrivalDelay ?: updated.departureDelay)?.let(::transitDelay)
                                 val name = if (updated.cancelled) call.name + " · Stop skipped"
                                     else listOfNotNull(call.name, delay).joinToString(" · ")
-                                Text(times(updated.arrival ?: updated.departure, name), fontSize = KType.caption, color = secondaryText)
+                                Text(times(updated.arrival ?: updated.departure, name), fontSize = KType.caption, color = secondaryText,
+                                    modifier = if (onStep == null) Modifier else Modifier.tap { onStep(leg, call.at) })
                             }
                         } else Text(Fmt.duration(leg.durationSeconds), fontSize = KType.caption, color = secondaryText)
                         val exitPlatform = (status?.exit?.platform ?: leg.calls.lastOrNull()?.platform)
@@ -951,7 +1019,7 @@ fun PickerPage(title: String, close: () -> Unit, content: @Composable ColumnScop
         val dark = LocalDark.current
         Column(Modifier.fillMaxSize().background(interfaceGround).systemBarsPadding().imePadding()) {
             Box(Modifier.fillMaxWidth().height(56.dp).background(interfaceSheet)) {
-                Text("Cancel", fontSize = KType.body, color = interfaceAccentText, modifier = Modifier.align(Alignment.CenterStart)
+                Text(localizeLabel("Cancel"), fontSize = KType.body, color = interfaceAccentText, modifier = Modifier.align(Alignment.CenterStart)
                     .padding(start = 8.dp).clip(RoundedCornerShape(8.dp)).tap(close).padding(horizontal = 10.dp, vertical = 8.dp))
                 Text(title, fontSize = KType.headline, fontWeight = FontWeight.SemiBold, color = primaryText, modifier = Modifier.align(Alignment.Center))
             }
@@ -967,25 +1035,32 @@ fun PickerSearchField(
     onFocused: () -> Unit = {}, onSearch: () -> Unit,
 ) {
     val dark = LocalDark.current
+    var voiceUnavailable by remember { mutableStateOf(false) }
+    val dictate = rememberDictation({ voiceUnavailable = false; onQuery(it) }, { voiceUnavailable = true })
     val requester = remember { androidx.compose.ui.focus.FocusRequester() }
     LaunchedEffect(autoFocus) { if (autoFocus) runCatching { requester.requestFocus() } }
     Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().height(48.dp).clip(RoundedCornerShape(14.dp))
         .background(interfaceSurface).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Icon(Icons.Filled.Search, null, tint = secondaryText, modifier = Modifier.size(22.dp))
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-            if (query.isEmpty()) Text(prompt, fontSize = KType.body, color = secondaryText)
+            if (query.isEmpty()) Text(localizeLabel(prompt), fontSize = KType.body, color = secondaryText)
             BasicTextField(query, onQuery, Modifier.fillMaxWidth().focusRequester(requester).onFocusChanged { if (it.isFocused) onFocused() }, singleLine = true,
-                textStyle = TextStyle(fontSize = KType.body, color = primaryText, fontFamily = Rounded), cursorBrush = SolidColor(Vela.accent(dark)),
+                textStyle = TextStyle(fontSize = KType.body, color = primaryText, fontFamily = Rounded), cursorBrush = SolidColor(interfaceAccent),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { onSearch() }))
         }
-        if (query.isNotEmpty()) Icon(Icons.Filled.Cancel, "Clear", tint = secondaryText, modifier = Modifier.size(20.dp).tap { onQuery("") })
+        if (query.isNotEmpty()) Icon(Icons.Filled.Cancel, localizeLabel("Clear"), tint = secondaryText, modifier = Modifier.size(20.dp).tap { onQuery("") })
+        IconButton(dictate, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Filled.Mic, kt("Dictate search", "Diktovat hledání"), tint = interfaceAccentText)
+        }
     }
+    if (voiceUnavailable) Text(kt("Voice input is unavailable on this phone.", "Hlasové zadávání není v tomto telefonu dostupné."),
+        color = secondaryText, modifier = Modifier.padding(horizontal = 18.dp))
 }
 
 /** A section title in a picker list. */
 @Composable
 fun SectionTitle(text: String) {
-    Text(text, fontSize = KType.subheadline, fontWeight = FontWeight.SemiBold, color = secondaryText,
+    Text(localizeLabel(text), fontSize = KType.subheadline, fontWeight = FontWeight.SemiBold, color = secondaryText,
         modifier = Modifier.padding(horizontal = 18.dp).padding(top = 16.dp, bottom = 4.dp))
 }
 
@@ -1012,14 +1087,14 @@ fun ArrivalRows(model: AppModel, state: DirectionsState) {
                 Icon(if (note == "Main entrance") Icons.Filled.DoorFront else Icons.Filled.LocalParking, null, tint = Vela.routeBlue, modifier = Modifier.size(20.dp))
                 Text(if (note == "Main entrance") "Going to the main entrance" else "Parking at $note", fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
                     color = primaryText, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                Text("Undo", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = Vela.accentText(dark), modifier = Modifier.tap { model.endAt(null, null) })
+                Text(localizeLabel("Undo"), fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = interfaceAccentText, modifier = Modifier.tap { model.endAt(null, null) })
             }
         } else {
             door?.let { dr ->
                 Row(Modifier.fillMaxWidth().tap { model.endAt(dr, "Main entrance") }, verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Icon(Icons.Filled.DoorFront, null, tint = Vela.routeBlue, modifier = Modifier.size(20.dp))
-                    Text("Drive to the main entrance", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = primaryText)
+                    Text(localizeLabel("Drive to the main entrance"), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = primaryText)
                     Text("${Fmt.distance(dr.distanceTo(place.location))} from the pin", fontSize = 14.sp, color = secondaryText)
                 }
             }
@@ -1034,10 +1109,10 @@ fun ArrivalRows(model: AppModel, state: DirectionsState) {
         }
     }
     if (showParks) {
-        ModalBottomSheet(onDismissRequest = { showParks = false }, containerColor = Vela.sheet(dark), dragHandle = null) {
+        ModalBottomSheet(onDismissRequest = { showParks = false }, containerColor = interfaceSheet, dragHandle = null) {
             Column(Modifier.padding(20.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Parking near ${place.name}", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = primaryText,
+                    Text(kt("Parking near ${place.name}", "Parkování u místa ${place.name}"), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = primaryText,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     CircleIconButton(Icons.Filled.Close) { showParks = false }
                 }
@@ -1053,7 +1128,7 @@ fun ArrivalRows(model: AppModel, state: DirectionsState) {
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 Text("${Fmt.walkMinutes(c.meters)} walk", fontSize = KType.subheadline, fontWeight = FontWeight.Medium, color = primaryText)
-                                Text("Park here", fontSize = KType.caption, fontWeight = FontWeight.SemiBold, color = Vela.routeBlue)
+                                Text(localizeLabel("Park here"), fontSize = KType.caption, fontWeight = FontWeight.SemiBold, color = Vela.routeBlue)
                             }
                         }
                     }
@@ -1126,22 +1201,29 @@ fun EndpointPicker(model: AppModel, destination: Boolean = false) {
         PickerSearchField(query, { query = it; submitted = null }, "Search places or addresses", autoFocus = false, onSearch = { search() })
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             item {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (!AppSettings.noGoogle) FilterChipLabel(if (osm) "OpenStreetMap" else "All sources", osm, menu = false) { withinOsm = !withinOsm }
-                    FilterChipLabel("Pick on map", false, menu = false) { model.beginEndpointPin(destination) }
-                }
-            }
-            if (!destination || model.userLatLng != null) item {
-                IconRow(Icons.Filled.MyLocation, "Your location") {
-                    if (destination) {
-                        model.userLatLng?.let { pick(Place("here", "Your location", it, "pin")) }
-                    } else { close(); model.setOrigin(null) }
+                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (!AppSettings.noGoogle) FilterChipLabel(if (osm) "OpenStreetMap" else kt("All sources", "Všechny zdroje"), osm, menu = false) { withinOsm = !withinOsm }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (!destination || model.userLatLng != null) FilledTonalButton({
+                            if (destination) model.userLatLng?.let { pick(Place("here", kt("Your location", "Moje poloha"), it, "pin")) }
+                            else { close(); model.setOrigin(null) }
+                        }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Filled.MyLocation, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(kt("Your location", "Moje poloha"))
+                        }
+                        FilledTonalButton({ model.beginEndpointPin(destination) }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Filled.Map, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(kt("Pick on map", "Vybrat na mapě"))
+                        }
+                    }
                 }
             }
             if (query.isNotBlank() && submitted != query.trim()) item {
                 IconRow(Icons.Filled.Search, "Search for “${query.trim()}”") { search() }
             }
-            if (searching) item { Text("Searching…", Modifier.padding(16.dp), color = secondaryText) }
+            if (searching) item { Text(localizeLabel("Searching…"), Modifier.padding(16.dp), color = secondaryText) }
             val places = if (query.isBlank()) {
                 val s = AppSettings
                 (listOfNotNull(s.home, s.work) + s.placeShortcuts + s.recentPlaces.take(6) + s.saved.take(8)).distinctBy { it.id }
@@ -1160,7 +1242,7 @@ fun EndpointPicker(model: AppModel, destination: Boolean = false) {
             } else {
                 items(suggestions.queries.distinct()) { next -> IconRow(Icons.Filled.Search, next) { search(next) } }
                 if (submitted != null && !searching && places.isEmpty()) item {
-                    Text("No matching places", Modifier.padding(16.dp), color = secondaryText)
+                    Text(localizeLabel("No matching places"), Modifier.padding(16.dp), color = secondaryText)
                 }
             }
         }
@@ -1182,35 +1264,52 @@ fun StopPicker(model: AppModel) {
     }
     fun search() { model.searchStops(query, named = OutdoorData.kind(query) == null) }
     var detent by rememberSaveable { mutableStateOf(SheetDetent.HALF) }
-    androidx.activity.compose.BackHandler {
-        if (detent == SheetDetent.FULL) detent = SheetDetent.HALF else close()
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val imeOpen = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
+    fun hideKeyboard() {
+        keyboard?.hide()
+        focus.clearFocus()
     }
-    BoxWithConstraints(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
+    fun resize(value: SheetDetent) {
+        if (value != SheetDetent.FULL) hideKeyboard()
+        detent = value
+    }
+    androidx.activity.compose.BackHandler {
+        when {
+            imeOpen -> hideKeyboard()
+            detent == SheetDetent.FULL -> resize(SheetDetent.HALF)
+            else -> close()
+        }
+    }
+    // Keep the panel's anchors independent of the animated IME insets.
+    BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding()) {
         val height = maxHeight
         Box(Modifier.align(Alignment.BottomCenter)) {
-            BottomSheet(detent, { detent = it }, height, opaque = true, allowPeek = false,
+            BottomSheet(detent, ::resize, height, opaque = true, allowPeek = false,
+                halfFraction = 0.62f, fullFraction = 1f, edgeToEdge = true,
                 header = {
                     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Add stop", Modifier.weight(1f), fontSize = KType.headline, fontWeight = FontWeight.Bold, color = primaryText)
-                        IconButton({ detent = if (detent == SheetDetent.FULL) SheetDetent.HALF else SheetDetent.FULL }) {
+                        Text(stringResource(R.string.add_stop_title), Modifier.weight(1f), fontSize = KType.headline, fontWeight = FontWeight.Bold, color = primaryText)
+                        IconButton({ resize(if (detent == SheetDetent.FULL) SheetDetent.HALF else SheetDetent.FULL) }) {
                             Icon(if (detent == SheetDetent.FULL) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess, "Resize search panel")
                         }
                         IconButton(close) { Icon(Icons.Filled.Close, "Close stop search") }
                     }
-                    PickerSearchField(query, { query = it }, "Search by name or address", autoFocus = false, onFocused = { detent = SheetDetent.FULL }, onSearch = ::search)
+                    PickerSearchField(query, { query = it }, "Search by name or address", autoFocus = false, onFocused = { resize(SheetDetent.FULL) }, onSearch = ::search)
                 }, content = {
-                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+                    LazyColumn(Modifier.fillMaxSize().imePadding().navigationBarsPadding(), contentPadding = PaddingValues(bottom = 16.dp)) {
                         if (query.trim().isNotEmpty()) {
                             val current = model.stopDraft?.takeIf { it.query == query.trim() }
                             if (current?.loading == true) item {
                                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                                    Text("Searching along your route…", color = secondaryText)
+                                    Text(localizeLabel("Searching along your route…"), color = secondaryText)
                                 }
                             }
                             if (current != null && !current.loading && current.results.isEmpty()) item {
-                                Text("No nearby results along this route", Modifier.padding(16.dp), color = secondaryText)
+                                Text(localizeLabel("No nearby results along this route"), Modifier.padding(16.dp), color = secondaryText)
                             }
                             items(current?.results.orEmpty(), key = { it.place.id }) { candidate ->
                                 val place = candidate.place
@@ -1253,55 +1352,82 @@ fun StopPicker(model: AppModel) {
     }
 }
 
+private enum class StopPanel { MAP, HALF, FULL }
+
 @Composable
 fun StopMapOverlay(model: AppModel, showMapbox: Boolean) {
     val search = model.stopSearch ?: return
-    var showList by rememberSaveable(search.query, search.parking) { mutableStateOf(false) }
-    var onlyOpen by rememberSaveable(search.query, search.parking) { mutableStateOf(false) }
-    val list = key(search.query, search.parking) { rememberLazyListState() }
-    var listDetent by rememberSaveable(search.query, search.parking) { mutableStateOf(SheetDetent.HALF) }
-    LaunchedEffect(search.results) {
-        if (search.results.isNotEmpty()) {
-            listDetent = SheetDetent.FULL
-            showList = true
+    var panel by rememberSaveable(search.id) { mutableStateOf(StopPanel.HALF) }
+    var returnPanel by rememberSaveable(search.id) { mutableStateOf(StopPanel.HALF) }
+    var onlyOpen by rememberSaveable(search.id) { mutableStateOf(false) }
+    val list = key(search.id) { rememberLazyListState() }
+    fun expandList() {
+        if (panel == StopPanel.FULL) return
+        returnPanel = panel
+        panel = StopPanel.FULL
+    }
+    LaunchedEffect(search.selected?.place?.id) {
+        if (search.selected != null) panel = StopPanel.MAP
+    }
+    androidx.activity.compose.BackHandler {
+        when (panel) {
+            StopPanel.FULL -> panel = returnPanel
+            StopPanel.HALF -> panel = StopPanel.MAP
+            StopPanel.MAP -> model.closeStopSearch()
         }
     }
-    LaunchedEffect(search.selected?.place?.id) { if (search.selected != null) showList = false }
-    androidx.activity.compose.BackHandler {
-        if (showList && listDetent == SheetDetent.FULL) listDetent = SheetDetent.HALF else model.closeStopSearch()
-    }
-    BoxWithConstraints(Modifier.fillMaxSize().systemBarsPadding()) {
+    BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding()) {
         val height = maxHeight
         if (showMapbox) MapboxAttribution(Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 62.dp))
         Row(Modifier.align(Alignment.TopCenter).padding(12.dp).fillMaxWidth().glass(RoundedCornerShape(22.dp))
             .padding(start = 16.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(if (search.parking) "Parking near destination" else search.query.replaceFirstChar { it.titlecase() }, modifier = Modifier.weight(1f),
                 fontWeight = FontWeight.SemiBold, color = primaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (!search.parking) TextButton({ model.addingStop = true }) { Text("Search") }
+            if (!search.parking) TextButton({ model.addingStop = true }) { Text(localizeLabel("Search")) }
             IconButton({ model.closeStopSearch() }) { Icon(Icons.Filled.Close, "Close stop search") }
         }
         val selected = search.selected
-        if (showList && !search.loading) {
+        if (panel != StopPanel.MAP && !search.loading && search.results.isNotEmpty()) {
             Box(Modifier.align(Alignment.BottomCenter)) {
-                StopResultsPanel(search, list, onlyOpen, { onlyOpen = it }, listDetent, { listDetent = it },
-                    height, close = { showList = false }) { candidate ->
+                StopResultsPanel(search, list, onlyOpen, { onlyOpen = it },
+                    if (panel == StopPanel.FULL) SheetDetent.FULL else SheetDetent.HALF,
+                    { if (it == SheetDetent.FULL) expandList() else panel = returnPanel },
+                    height, close = { panel = StopPanel.MAP }) { candidate ->
                     model.showStopPin(candidate)
-                    showList = false
+                    panel = StopPanel.MAP
                 }
             }
         } else if (selected != null && !search.loading) {
-            var expanded by rememberSaveable(selected.place.id) { mutableStateOf(false) }
-            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp)) {
-                StopResultCard(search, selected, search.results.indexOf(selected) + 1, expanded, toggle = { expanded = !expanded },
-                    footer = {
-                        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            TextButton({ listDetent = SheetDetent.FULL; showList = true }) { Text("All results") }
-                            Button({ model.acceptStop(selected) }) { Text(if (search.parking) "Drive here" else "Add stop") }
-                        }
-                    })
+            val ordered = if (onlyOpen && selected.place.openNow == true) {
+                search.results.filter { it.place.openNow == true }
+            } else search.results
+            val selectedIndex = ordered.indexOfFirst { it.place.id == selected.place.id }.coerceAtLeast(0)
+            val pager = rememberPagerState(initialPage = selectedIndex) { ordered.size }
+            LaunchedEffect(pager, selected.place.id, ordered) {
+                if (pager.settledPage != selectedIndex) pager.scrollToPage(selectedIndex)
+                snapshotFlow { pager.settledPage }.drop(1).collect { page ->
+                    ordered.getOrNull(page)?.let(model::showStopPin)
+                }
             }
-        } else Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp)
+            HorizontalPager(pager, Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding(),
+                contentPadding = PaddingValues(horizontal = if (ordered.size > 1) 23.dp else 12.dp),
+                pageSpacing = 8.dp, verticalAlignment = Alignment.Bottom,
+                key = { ordered[it].place.id }) { page ->
+                val candidate = ordered[page]
+                var expanded by rememberSaveable { mutableStateOf(false) }
+                Box(Modifier.padding(bottom = 12.dp)) {
+                    StopResultCard(search, candidate, search.results.indexOf(candidate) + 1, expanded,
+                        toggle = { expanded = !expanded }, footer = {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp).padding(bottom = 9.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(::expandList) { Text(stringResource(R.string.all_results)) }
+                                if (ordered.size > 1) Text("${page + 1}/${ordered.size}", color = secondaryText, fontSize = KType.caption2)
+                                Button({ model.acceptStop(candidate) }) { Text(if (search.parking) "Drive here" else "Add stop") }
+                            }
+                        })
+                }
+            }
+        } else Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(12.dp)
             .glass(RoundedCornerShape(24.dp)).padding(horizontal = 16.dp, vertical = 12.dp)) {
             when {
                 search.loading -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1310,8 +1436,8 @@ fun StopMapOverlay(model: AppModel, showMapbox: Boolean) {
                 }
                 search.results.isEmpty() -> Text(if (search.parking) "No parking found nearby." else "No stops found near the road ahead.", color = primaryText, modifier = Modifier.padding(vertical = 8.dp))
                 else -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Choose a pin on the map", Modifier.weight(1f), color = primaryText)
-                    TextButton({ listDetent = SheetDetent.FULL; showList = true }) { Text("List (${search.results.size})", color = interfaceAccentText) }
+                    Text(localizeLabel("Choose a pin on the map"), Modifier.weight(1f), color = primaryText)
+                    TextButton(::expandList) { Text("List (${search.results.size})", color = interfaceAccentText) }
                 }
             }
         }
@@ -1333,15 +1459,26 @@ fun EndpointPinOverlay(model: AppModel, showMapbox: Boolean, center: () -> LatLn
 private fun MapPinOverlay(label: String, showMapbox: Boolean, cancel: () -> Unit, confirm: () -> Unit) {
     androidx.activity.compose.BackHandler(onBack = cancel)
     Box(Modifier.fillMaxSize()) {
-        Icon(Icons.Filled.AddLocationAlt, "Pin position", tint = Vela.accentText(LocalDark.current),
+        Icon(Icons.Filled.AddLocationAlt, kt("Pin position", "Poloha špendlíku"), tint = interfaceAccentText,
             modifier = Modifier.align(Alignment.Center).offset(y = (-15).dp).size(38.dp))
-        if (showMapbox) MapboxAttribution(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(start = 12.dp, top = 74.dp))
-        Row(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(12.dp).glass(RoundedCornerShape(22.dp))
-            .padding(start = 16.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Move the map to place the pin", Modifier.weight(1f), color = primaryText)
-            IconButton(cancel) { Icon(Icons.Filled.Close, "Cancel") }
+        if (showMapbox) MapboxAttribution(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(start = 16.dp, top = 88.dp))
+        Row(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(12.dp).glass(RoundedCornerShape(24.dp), solid = true)
+            .padding(start = 14.dp, end = 5.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(interfaceHighlight), contentAlignment = Alignment.Center) {
+                Icon(Icons.Filled.MyLocation, null, tint = interfaceOnHighlight, modifier = Modifier.size(20.dp))
+            }
+            Column(Modifier.weight(1f).padding(vertical = 10.dp)) {
+                Text(label, fontWeight = FontWeight.Bold, color = primaryText)
+                Text(localizeLabel("Move the map to place the pin"), color = secondaryText, fontSize = KType.caption)
+            }
+            CircleIconButton(Icons.Filled.Close, description = localizeLabel("Cancel"), onClick = cancel)
         }
-        Button(confirm, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(18.dp)) { Text(label) }
+        Button(confirm, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(18.dp).heightIn(min = 52.dp)) {
+            Icon(Icons.Filled.Check, null, Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(label)
+        }
     }
 }
 
@@ -1350,10 +1487,10 @@ fun DistanceMeasure(model: AppModel, modifier: Modifier = Modifier) {
     val (a, b) = model.measurement ?: return
     Row(modifier.padding(12.dp).glass(RoundedCornerShape(16.dp)).padding(start = 12.dp, end = 2.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Filled.Straighten, null, tint = Vela.accentText(LocalDark.current))
+        Icon(Icons.Filled.Straighten, null, tint = interfaceAccentText)
         Column(Modifier.padding(start = 8.dp)) {
             Text(Fmt.distance(a.distanceTo(b)), fontWeight = FontWeight.Bold, color = primaryText)
-            Text("Straight-line distance", fontSize = KType.caption, color = secondaryText)
+            Text(localizeLabel("Straight-line distance"), fontSize = KType.caption, color = secondaryText)
         }
         IconButton({ model.measurement = null }) { Icon(Icons.Filled.Close, "Clear measurement") }
     }

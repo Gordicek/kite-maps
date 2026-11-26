@@ -18,7 +18,7 @@ internal object OfflineMaps {
         val id: Long, val name: String, val bounds: LatLngBounds, val maxZoom: Double,
         val active: Boolean = false, val complete: Boolean = false,
         val bytes: Long = 0, val progress: Float? = null, val resources: Long = 0,
-        val error: String? = null,
+        val error: String? = null, val regionId: String? = null,
     )
 
     val areas = mutableStateMapOf<Long, Area>()
@@ -45,9 +45,12 @@ internal object OfflineMaps {
         if (def.styleURL != KiteMap.STYLE_URL) return
         val bounds = def.bounds ?: return
         val id = region.id
-        val name = region.metadata.toString(Charsets.UTF_8).trim().ifBlank { "Offline area" }
+        val metadata = region.metadata.toString(Charsets.UTF_8)
+        val idAndName = metadata.split('\n', limit = 2)
+        val regionId = idAndName.first().takeIf { idAndName.size == 2 }?.ifBlank { null }
+        val name = idAndName.last().trim().ifBlank { "Offline area" }
         regions[id] = region
-        areas[id] = Area(id, name, bounds, def.maxZoom)
+        areas[id] = Area(id, name, bounds, def.maxZoom, regionId = regionId)
         region.setObserver(object : OfflineRegion.OfflineRegionObserver {
             override fun onStatusChanged(status: OfflineRegionStatus) { update(region, status) }
             override fun onError(error: OfflineRegionError) {
@@ -73,10 +76,13 @@ internal object OfflineMaps {
         if (status.isComplete && current.active) stop(region.id)
     }
 
-    fun download(region: OfflineRegions.Region) = download(region.name, region.box, region.maxZoom)
+    fun download(region: OfflineRegions.Region) = download(region.name, region.box, region.maxZoom, region.id)
 
-    private fun download(name: String, box: Box, zoom: Int) {
-        if (creating || areas.values.any { it.active }) return
+    fun downloadViewport(name: String, box: Box) =
+        download(name, box, OfflineRegions.VIEWPORT_ZOOM, null)
+
+    private fun download(name: String, box: Box, zoom: Int, regionId: String?) {
+        if (creating || areas.values.any { it.active || regionId != null && it.regionId == regionId }) return
         // The SDK expects an ordinary non-wrapping geographic rectangle.
         if (box.w >= box.e || box.s >= box.n || box.s !in -85.0..85.0 || box.n !in -85.0..85.0) {
             message = "Choose a map area away from the poles."
@@ -85,9 +91,9 @@ internal object OfflineMaps {
         pendingName = name
         message = null
         val bounds = LatLngBounds.from(box.n, box.e, box.s, box.w)
-        val definition = OfflineTilePyramidRegionDefinition(KiteMap.STYLE_URL, bounds, minOf(9, zoom - 2).toDouble(), zoom.toDouble(),
+        val definition = OfflineTilePyramidRegionDefinition(KiteMap.STYLE_URL, bounds, 0.0, zoom.toDouble(),
             KiteApp.app.resources.displayMetrics.density, false)
-        manager.createOfflineRegion(definition, name.trim().ifBlank { "Offline area" }.take(70).toByteArray(),
+        manager.createOfflineRegion(definition, (regionId.orEmpty() + "\n" + name.trim().ifBlank { "Offline area" }.take(70)).toByteArray(),
             object : OfflineManager.CreateOfflineRegionCallback {
                 override fun onCreate(region: OfflineRegion) {
                     register(region)

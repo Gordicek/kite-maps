@@ -1,5 +1,6 @@
 package app.kite.ui
 
+import app.kite.localizeLabel
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -40,7 +41,7 @@ internal fun MapboxAttribution(modifier: Modifier = Modifier) {
     Row(modifier.clip(RoundedCornerShape(6.dp)).background(Color.White.copy(alpha = 0.92f))
         .clickable(onClickLabel = "Map attribution") { if (satellite || mapbox?.invoke() != true) open = true }
         .padding(horizontal = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-        Image(painterResource(R.drawable.mapbox_attribution), "Mapbox", Modifier.height(23.dp))
+        Image(painterResource(R.drawable.mapbox_attribution_black), "Mapbox", Modifier.height(20.dp))
         if (satellite) Text("Imagery © Esri", Modifier.padding(start = 5.dp), color = Color(0xFF24303C), fontSize = 10.sp)
     }
     if (open) AlertDialog(
@@ -54,6 +55,6 @@ internal fun MapboxAttribution(modifier: Modifier = Modifier) {
                 TextButton({ context.open("https://apps.mapbox.com/feedback/") }) { Text("Improve this map") }
             }
         },
-        confirmButton = { TextButton({ open = false }) { Text("Done") } },
+        confirmButton = { TextButton({ open = false }) { Text(localizeLabel("Done")) } },
     )
 }

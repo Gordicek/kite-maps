@@ -20,16 +20,19 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.kite.ui.*
-import app.kite.core.PidRealtime
 import app.kite.core.TransitLive
 import app.kite.core.Transitous
 import androidx.lifecycle.Lifecycle
@@ -75,6 +78,7 @@ class MainActivity : ComponentActivity() {
     override fun onPictureInPictureModeChanged(active: Boolean, configuration: Configuration) {
         super.onPictureInPictureModeChanged(active, configuration)
         inPip = active
+        DriveService.surface(visible = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED), pip = active)
         if (active && model.nav != null) {
             model.addingStop = false
             model.closeStopSearch(restore = false)
@@ -83,20 +87,28 @@ class MainActivity : ComponentActivity() {
         if (active && model.mapNavigator?.following == false) model.recenterNav()
     }
 
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(KiteLanguage.wrap(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         Connectivity.start(applicationContext)
         LocationService.refreshPermission()
-        Voice.warmUp()
         WazeWeb.install(this)
         handle(intent)
-        setContent { KiteTheme { KiteScreen(model, this) } }
+        setContent { KiteTheme(position = { model.userLatLng ?: model.viewport.first }) { KiteScreen(model, this) } }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handle(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        DriveService.surface(visible = true, pip = isInPictureInPictureMode)
     }
 
     override fun onResume() {
@@ -109,6 +121,7 @@ class MainActivity : ComponentActivity() {
     /** Out of sight and not driving: GPS off to save the battery (back on at onResume). */
     override fun onStop() {
         super.onStop()
+        DriveService.surface(visible = false, pip = isInPictureInPictureMode)
         LocationService.visible = false
         LocationService.stop()
         compass.stop()
@@ -168,30 +181,25 @@ fun KiteScreen(model: AppModel, activity: MainActivity) {
     }
     val kiteMap = remember { KiteMap(model, ctx.applicationContext).also { DemoScript.kite = it } }
     val dark = LocalDark.current
-    SideEffect {
+    LaunchedEffect(activity, dark) {
         val bars = androidx.core.view.WindowCompat.getInsetsController(activity.window, activity.window.decorView)
         bars.isAppearanceLightStatusBars = !dark
         bars.isAppearanceLightNavigationBars = !dark
     }
+    val badges = MapIcons.BadgeColors(interfaceSheet.toArgb(), primaryText.toArgb(), interfaceAccent.toArgb(), interfaceOnAccent.toArgb())
+    LaunchedEffect(badges) { kiteMap.setBadgeColors(badges) }
     val scenery = remember(kiteMap) { MapboxScenery(model, kiteMap).also { kiteMap.scenery = it } }
 
-    // The map's own location dot follows the same fixes the drive uses.
-    DisposableEffect(Unit) {
-        val modelUpdate = LocationService.onUpdate
-        LocationService.onUpdate = { f -> modelUpdate?.invoke(f); kiteMap.pushFix(f) }
-        model.glide.onMapPuck = { feature ->
-            scenery.updateOverlay(NavGlide.PUCK) {
-                feature?.toJson() ?: """{"type":"FeatureCollection","features":[]}"""
-            }
-        }
-        onDispose {
-            LocationService.onUpdate = modelUpdate
-            model.glide.onMapPuck = null
-            model.glide.cameraOutput = null
+    LaunchedEffect(kiteMap) {
+        snapshotFlow { LocationService.last }.collect { fix ->
+            if (fix != null) kiteMap.pushFix(fix)
         }
     }
     val driving = model.nav?.route?.mode == app.kite.core.TravelMode.DRIVE || model.cruise != null
-    LaunchedEffect(Unit) { OfflineMaps.load() }
+    LaunchedEffect(Unit) {
+        if (Connectivity.online) delay(900)
+        OfflineMaps.load()
+    }
     val offlineBasemap = model.offlineMapShown || !Connectivity.online && OfflineMaps.areas.values.any { it.complete }
     val mapboxToken = s.activeMapboxToken.takeUnless { offlineBasemap }
     val satellite = s.satellite && !offlineBasemap
@@ -221,26 +229,44 @@ fun KiteScreen(model: AppModel, activity: MainActivity) {
     val usableStandardToken = standardToken.takeUnless { scenery.failed }
     val standardReady = usableStandardToken != null && scenery.ready
     val showingMapbox = standardReady || kiteMap.showingMapbox
-    val look = MapboxScenery.Look(mapDark, satellite, s.terrain3D && model.indoorView == null, s.terrain, s.buildingShadows && !driving, s.streetLamps, s.traffic && !driving,
-        if (mapDark) s.nightMapPalette else s.dayMapPalette, driving, indoor = model.indoorView != null)
+    val look = MapboxScenery.Look(mapDark, satellite, s.terrain3D && model.indoorView == null, s.terrain, s.buildingShadows, s.streetLamps, s.traffic && !driving,
+        mapPalette(mapDark), driving, indoor = model.indoorView != null, trees = s.mapTrees, buildings = s.mapBuildings,
+        locale = s.language.locale, guiding = model.isGuiding || driving)
     LaunchedEffect(look) { scenery.setLook(look) }
-    LaunchedEffect(mapDark, driving, satellite, mapboxToken, standardReady) {
-        kiteMap.applyBasemap(mapDark, driving, satellite && !standardReady, mapboxToken.takeUnless { standardReady })
+    val classicToken = mapboxToken.takeUnless { standardToken != null }
+    val classicSatellite = satellite && usableStandardToken == null
+    LaunchedEffect(mapDark, classicSatellite, classicToken, look.palette) {
+        kiteMap.applyBasemap(mapDark, classicSatellite, classicToken, look.palette)
     }
     LaunchedEffect(s.markerTheme) { kiteMap.refreshMarkerTheme(); scenery.refreshMarkerTheme() }
     LaunchedEffect(s.googleIconPercent, s.osmIconPercent, s.resultIconPercent, s.wazeMapPercent) {
         kiteMap.refreshPinSizes()
         scenery.refreshPinSizes()
     }
-    LaunchedEffect(s.googleMapPlaces, s.openMapPlaces, s.openPlaceGroups, s.navigationPlaces, s.navigationPlaceSource, s.navigationPlaceGroups, s.hikingTrails, s.bikeTrails, s.transitLines, s.noGoogle, model.tab, model.mapNavigator != null, model.transitGuidance != null, model.directions != null, model.selected != null, model.results.isEmpty(), model.cruise != null) {
+    LaunchedEffect(s.googleMapPlaces, s.openMapPlaces, s.openPlaceGroups, s.navigationPlaces, s.navigationPlaceSource, s.navigationPlaceGroups, s.hikingTrails, s.bikeTrails, s.footpaths, s.cycleways, s.transitLines, s.noGoogle, model.tab, model.mapNavigator != null, model.transitGuidance != null, model.directions != null, model.cruise != null) {
         kiteMap.refreshGooglePlaces()
         scenery.showTransit(s.transitLines && model.nav == null && model.transitGuidance == null)
-        LocationService.last?.let(scenery::updatePosition)
+        kiteMap.refreshPosition()
     }
 
     val journey = model.transitGuidance
-    val transitTrip = journey?.trip ?: model.directions?.takeIf { it.transit }?.pickedTrip
-    LaunchedEffect(transitTrip?.id, journey?.legIndex, journey?.phase, s.pidAccessToken) {
+    val transitTrip = journey?.trip ?: model.directions?.takeIf { it.transit }?.pickedTrip ?: model.departurePreview
+    LaunchedEffect(model.departurePreview?.id) {
+        val ride = model.departurePreview?.rides?.firstOrNull() ?: return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                val fix = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    Transitous.timetablePosition(ride, System.currentTimeMillis())
+                }
+                if (fix != model.departureEstimate) {
+                    model.departureEstimate = fix
+                    model.mapTick++
+                }
+                delay(5_000)
+            }
+        }
+    }
+    LaunchedEffect(transitTrip?.id, journey?.legIndex, journey?.phase) {
         model.transitLive = emptyMap()
         model.refreshedTransit = null
         val trip = transitTrip ?: return@LaunchedEffect
@@ -265,7 +291,6 @@ fun KiteScreen(model: AppModel, activity: MainActivity) {
                     val current = visibleRides.map { original ->
                         async {
                             val id = original.tripId ?: return@async null
-                            val operator = async { PidRealtime.forLeg(original, s.pidAccessToken) }
                             val status = withTimeoutOrNull(11_000) { Transitous.live(original) }
                             val fromItinerary = (refreshed.await() ?: model.refreshedTransit)?.rides?.firstOrNull { it.tripId == id }
                             val scheduled = (fromItinerary ?: original).calls
@@ -273,16 +298,13 @@ fun KiteScreen(model: AppModel, activity: MainActivity) {
                                 ?: scheduled.firstOrNull()?.takeIf { it.departureDelay != null } ?: status?.board ?: scheduled.firstOrNull()
                             val exit = status?.exit?.takeIf { it.arrivalDelay != null }
                                 ?: scheduled.lastOrNull()?.takeIf { it.arrivalDelay != null } ?: status?.exit ?: scheduled.lastOrNull()
-                            val pid = operator.await()
-                            val regional = if (pid?.board == null && status?.cancelled != true && board?.departureDelay == null)
+                            val regional = if (status?.cancelled != true && board?.departureDelay == null)
                                 withTimeoutOrNull(7_500) { Transitous.localDeparture(original) } else null
                             val merged = (status ?: TransitLive(null, null, false, original.notices)).copy(
-                                board = pid?.board ?: regional ?: board,
+                                board = regional ?: board,
                                 exit = exit,
-                                position = pid?.position ?: status?.position,
-                                gps = pid?.position != null || status?.gps == true,
                                 calls = status?.calls?.takeIf { it.isNotEmpty() } ?: scheduled,
-                                cancelled = pid?.cancelled == true || status?.cancelled == true || fromItinerary?.cancelled == true,
+                                cancelled = status?.cancelled == true || fromItinerary?.cancelled == true,
                                 notices = (status?.notices.orEmpty() + fromItinerary?.notices.orEmpty() + original.notices).distinct(),
                             )
                             id to merged
@@ -299,7 +321,9 @@ fun KiteScreen(model: AppModel, activity: MainActivity) {
     val previewRoute = model.directions?.route
     LaunchedEffect(previewRoute?.id) { model.prepareRoadControls(previewRoute) }
     val sceneryRoute = model.nav?.route ?: previewRoute
-    val scenerySection = ((model.nav?.progress?.alongMeters ?: 0.0) / 1800.0).toInt()
+    val scenerySection by remember(model) {
+        derivedStateOf { ((model.nav?.progress?.alongMeters ?: 0.0) / 1800.0).toInt() }
+    }
     LaunchedEffect(sceneryRoute?.id, scenerySection, standardReady, satellite, s.streetLamps) {
         val route = sceneryRoute.takeIf { standardReady && !satellite }
         if (route != null) kotlinx.coroutines.delay(1_200)
@@ -310,11 +334,11 @@ fun KiteScreen(model: AppModel, activity: MainActivity) {
     // Redraw the map's layers whenever anything they show changes.
     LaunchedEffect(Unit) {
         snapshotFlow {
-            listOf(model.mapTick, model.results, model.selected?.id, model.streetView != null, model.directions, model.pathSectionHighlight, model.mapNavigator, model.mapNavigator?.following, model.transitGuidance?.legIndex, model.transitGuidance?.overviewing, model.transitLive, model.stopSearch, model.measurement, model.nav?.routeWaze, model.mapNavigator?.roadControls, model.nav?.roadTraffic, model.openNowOnly, model.rating4Only,
+            listOf(model.mapTick, model.results, model.searching, model.selected?.id, model.streetView != null, model.directions, model.detent.takeIf { model.directions != null }, model.pathSectionHighlight, model.mapNavigator, model.mapNavigator?.following, model.transitGuidance?.legIndex, model.transitGuidance?.overviewing, model.transitStepPreview, model.transitLive, model.stopSearch, model.measurement, model.nav?.routeWaze, model.mapNavigator?.roadControls, model.nav?.roadTraffic, model.openNowOnly, model.rating4Only,
                 s.traffic, s.satellite, s.terrain, s.transitLines, s.speedCameras, s.plateCameras, s.wazeOnMap, s.wazeHeatmap,
                 s.home, s.work, s.parking, s.saved, LocationService.authorized, model.tab,
                 s.welcomed, s.noGoogle, s.surveillanceCameras, s.wazeOn, s.wazeKinds, s.wazeMaxAge,
-                s.liveCams, s.liveRoadCams, s.liveWebcams, LiveCamStore.version, model.cruise, s.driveMarker, model.routeReports,
+                s.liveCams, s.liveRoadCams, s.liveWebcams, LiveCamStore.version, model.cruise, s.driveMarker, s.routeArrowStyle, model.routeReports,
                 s.aheadSignals, s.aheadStops, s.aheadRail, s.aheadCrossings, s.aheadWaze, s.aheadCameras, s.aheadTraffic, s.roadWazeKinds, s.navigationPlaces, s.navigationPlaceSource, s.navigationPlaceGroups)
         }.collect { kiteMap.render() }
     }
@@ -355,7 +379,10 @@ fun KiteScreen(model: AppModel, activity: MainActivity) {
     }
     LaunchedEffect(model.profileProbe, model.stationEntrance) { kiteMap.refreshProfileProbe() }
     LaunchedEffect(model.selected?.id, Connectivity.online) { model.probeIndoor(model.selected) }
-    LaunchedEffect(model.indoorView) { kiteMap.refreshIndoor() }
+    LaunchedEffect(model.indoorView) {
+        kiteMap.refreshIndoor()
+        kiteMap.refreshPosition()
+    }
     LaunchedEffect(model.streetViewFrame) { kiteMap.refreshStreetView() }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -364,8 +391,8 @@ fun KiteScreen(model: AppModel, activity: MainActivity) {
         model.mapWidthDp = maxWidth.value
         model.mapHeightDp = mapPane.value
         model.glide.compactViewport = inPip
-        model.glide.heightDp = maxHeight.value
-        model.glide.widthDp = maxWidth.value
+        model.glide.useMapMarker = !inPip && (model.stopSearch != null || model.placingStop || model.placingEndpoint != null ||
+            model.transitGuidance?.overviewing == true)
         AndroidView(
             modifier = Modifier.align(Alignment.BottomCenter).height(mapPane).fillMaxWidth(),
             factory = { c -> KiteMapSurface(c, lifecycle, kiteMap, scenery, model) },
@@ -380,6 +407,7 @@ fun KiteScreen(model: AppModel, activity: MainActivity) {
         ) {
             when {
                 inPip -> NavigationPictureInPicture(model, showingMapbox)
+                model.offlineSelecting -> OfflineViewportPicker(model) { x, y -> scenery.pointAt(x, y) ?: kiteMap.pointAt(x, y) }
                 panorama != null -> StreetViewScreen(model, panorama, mapPane, showingMapbox)
                 model.indoorView != null -> IndoorFloorOverlay(model, requireNotNull(model.indoorView))
                 model.profileRoute != null -> RouteProfileOverlay(model, requireNotNull(model.profileRoute))
@@ -390,6 +418,7 @@ fun KiteScreen(model: AppModel, activity: MainActivity) {
                 nav != null -> NavigationOverlay(model, nav, showingMapbox)
                 model.cruise != null -> model.cruise?.let { CruiseOverlay(model, it, showingMapbox) }
                 model.directions != null -> DirectionsOverlay(model, showingMapbox)
+                model.departurePreview != null -> app.kite.ui.DeparturePreview(model, requireNotNull(model.departurePreview), showingMapbox)
                 else -> when (model.tab) {
                     AppTab.MAP -> BrowseOverlay(model, showingMapbox)
                     AppTab.SAVED -> SavedPage(model)
@@ -404,8 +433,10 @@ fun KiteScreen(model: AppModel, activity: MainActivity) {
             model.navigationPlace?.let { place -> NavigationPlaceCard(model, place, Modifier.align(Alignment.BottomCenter)) }
         }
         val info = model.wazeInfo
-        if (!inPip && panorama == null && info != null && model.tab == AppTab.MAP && model.stopSearch == null && !model.placingStop) {
-            val placement = if (nav == null) Modifier else Modifier.align(androidx.compose.ui.Alignment.Center)
+        if (!inPip && panorama == null && info != null && model.tab == AppTab.MAP && model.stopSearch == null && !model.addingStop && !model.placingStop) {
+            val placement = if (nav == null) {
+                Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 84.dp)
+            } else Modifier.align(Alignment.Center)
             WazeInfoToast(model, info, placement)
         }
         val cam = model.liveCam

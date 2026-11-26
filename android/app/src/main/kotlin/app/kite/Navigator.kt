@@ -19,12 +19,13 @@ class FasterOffer(
     val extraMeters: Double = 0.0,
     /** Pay-later road charges on the new way that yours didn't have, like the Dartford Crossing. */
     val newCharges: List<String> = emptyList(),
+    val congestionAhead: Boolean = false,
 )
 
 /** A lower speed limit coming up: what it is, and how far. */
 data class LimitDrop(val kmh: Double, val meters: Double)
 
-/** How long the faster route card waits before taking the route by itself. */
+/** How long a faster route offer stays visible. */
 const val FASTER_WAIT_MS = 10_000L
 
 /** The speaker button's three choices, like Waze. */
@@ -46,7 +47,7 @@ private fun String.lowercasedFirst() = if (isEmpty()) this else substring(0, 1).
  * One drive, walk or ride: follows the user along the route, speaks the turns, and reroutes
  * when they leave it. The same rules as the iPhone app, line for line.
  */
-class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private val scope: CoroutineScope, val transitWalk: Boolean = false) {
+class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private val scope: CoroutineScope, val transitWalk: Boolean = false, rejoinAtStart: Boolean = false) {
     var destination by mutableStateOf(destination0); private set
     var originalParkingDestination by mutableStateOf<Place?>(null); private set
     var parkingOfferDismissed by mutableStateOf(false); private set
@@ -58,9 +59,9 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
         get() {
             if (!AppSettings.traffic) return emptyList()
             val measured = currentTraffic ?: route.trafficSpans
-            if (!AppSettings.aheadWaze || !AppSettings.wazeOnMap) return measured
+            if (!AppSettings.aheadWaze) return measured
             // A point report identifies an approximate spot, so keep its mark short.
-            val reported = routeWaze.filter { it.alert.kind == WazeAlert.Kind.JAM && AppSettings.showsOnRoad(it.alert) }
+            val reported = routeWaze.filter { it.alert.kind == WazeAlert.Kind.JAM && AppSettings.showsInStrip(it.alert) }
                 .map { TrafficSpan(if (it.alert.subtype == "JAM_STAND_STILL_TRAFFIC") 3 else 2, (it.along - 70).coerceAtLeast(0.0), 140.0) }
             return measured + reported
         }
@@ -122,19 +123,17 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
     var roadControls by mutableStateOf<List<Overpass.RoadControl>>(emptyList()); private set
     private var preparedControls: Deferred<List<Overpass.RoadControl>?>? = null
     private var nearRoadControls = emptyList<Overpass.RoadControl>()
+    private var nearRoadControlsCoverage = 1.0..0.0
     private var allRoadControls = emptyList<Overpass.RoadControl>()
     private var roadControlsJob: Job? = null
     private var roadControlsAt = 0L
     private var roadControlsAlong = -10_000.0
 
     private fun publishRoadControls() {
-        val roadData = nearRoadControls + allRoadControls.filter { remote ->
-            nearRoadControls.none { it.kind == remote.kind && abs(it.along - remote.along) < 35 }
-        }
-        val known = roadData + route.roadControls.filter { provider ->
-            roadData.none { it.kind == provider.kind && abs(it.along - provider.along) < 35 }
-        }
-        roadControls = known.sortedBy { it.along }
+        roadControls = Overpass.mergeRoadControls(
+            route.roadControls, nearRoadControls,
+            allRoadControls.filter { it.along !in nearRoadControlsCoverage },
+        )
     }
 
     fun seedWazeReports(reports: List<WazeAlert>) {
@@ -173,6 +172,7 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
                 return@launch
             }
             nearRoadControls = local.map { it.copy(along = it.along + from) }
+            nearRoadControlsCoverage = from..(along + if (walking) 850.0 else 3_600.0)
             publishRoadControls()
         }
     }
@@ -197,6 +197,7 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
     private var cameraSpokenAt = 0L
     private var cameraSpokenLimit: Double? = null
     private var joinedRoute = false
+    private var rejoiningStart = rejoinAtStart
     private var fullRoadData = false
     private var matchedLimits = false
     private var providerLimits = false
@@ -303,9 +304,9 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
         // doesn't sound like it's right here.
         val firstWords = first?.let { f ->
             if (f.alongMeters < 40 || f.type == ManeuverType.ARRIVE) "${f.spokenWords}."
-            else "In ${Fmt.spokenDistance(f.alongMeters)}, ${f.spokenWords.lowercasedFirst()}."
+            else announcedIn(f.alongMeters, f.spokenWords.lowercasedFirst()) + "."
         } ?: ""
-        speak("Starting route to ${destination.name}. $firstWords")
+        speak(kt("Starting route to ${destination.name}. $firstWords", "Zahajuji navigaci do cíle ${destination.name}. $firstWords"))
         // That was the heads-up for the first step: not again a moment later, but still the turn itself.
         if (first != null && first.alongMeters < 1500) {
             val i = route0.maneuvers.indexOf(first)
@@ -372,7 +373,7 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
         val j = (i + 1 until route.maneuvers.size).firstOrNull { !route.maneuvers[it].silent } ?: return ""
         val a = route.maneuvers[i]; val b = route.maneuvers[j]
         if (b.leavesRoundabout || b.type == ManeuverType.ARRIVE || b.alongMeters - a.alongMeters >= 70) return ""
-        return ", then ${b.spokenWords.lowercasedFirst()}"
+        return kt(", then ", ", poté ") + b.spokenWords.lowercasedFirst()
     }
 
     /** The one after next, for the "Then" line when two turns come close together. */
@@ -442,15 +443,19 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
             fasterOffer = null
             fasterRoute = null
             estimating = false
-            speak("You have arrived at ${destination.name}" + (destinationSide?.let { ", on the $it." } ?: "."))
+            speak(kt("You have arrived at ${destination.name}" + (destinationSide?.let { ", on the $it." } ?: "."), "Jste v cíli. ${destination.name}."))
             scope.launch {
                 delay(180_000)
                 if (arrived && !stopped) onFinished?.invoke()
             }
             return
         }
-        if (p.offsetMeters < 40) joinedRoute = true
-        if (p.offRoute && !estimated && !rerouting && (toPin > 150 || !nearPin) && (joinedRoute || p.offsetMeters > 400) && since(lastReroute) > 8) {
+        if (p.offsetMeters < 40) {
+            joinedRoute = true
+            rejoiningStart = false
+        }
+        if (p.offRoute && !estimated && !rerouting && (toPin > 150 || !nearPin) &&
+            (joinedRoute || p.offsetMeters > 400 || rejoiningStart && loc.accuracy <= 55) && since(lastReroute) > 8) {
             reroute(loc)
             return
         }
@@ -470,7 +475,7 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
         checkStops(p)
         if (route.mode == TravelMode.DRIVE && AppSettings.speedingAlert &&
             speeding.update(if (loc.speedKnown) loc.speed * 3.6 else null, speedLimitKmh, loc.timeMillis / 1000.0)) {
-            speak("You're over the speed limit.", alert = true)
+            speak(kt("You're over the speed limit.", "Překračujete povolenou rychlost."), alert = true)
         }
     }
 
@@ -478,7 +483,7 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
     fun addStop(p: Place, index: Int = 0) {
         if (stops.size >= 8 || stops.any(p::matchesNearby)) return
         stops = stops.toMutableList().apply { add(index.coerceIn(0, size), p) }
-        speak("Adding a stop at ${p.name}.")
+        speak(kt("Adding a stop at ${p.name}.", "Přidávám zastávku ${p.name}."))
         lastFix?.let { reroute(it, quiet = true, adding = p) }
     }
 
@@ -493,7 +498,8 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
         val at = Geo.project(next.location, route.polyline)
         if (at.offset >= 150 || p.alongMeters < at.along - 40) return
         stops = stops.drop(1)
-        speak("You've reached ${next.name}. Continuing to ${stops.firstOrNull()?.name ?: destination.name}.")
+        val following = stops.firstOrNull()?.name ?: destination.name
+        speak(kt("You've reached ${next.name}. Continuing to $following.", "Dorazili jste na zastávku ${next.name}. Pokračujte směr $following."))
     }
 
     /** The real shape of each roundabout ahead, for the picture in the banner. */
@@ -511,19 +517,25 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
             }
         }
         scope.launch {
-            var r = start
-            Roundabouts.addMinis(r.deep())?.let { withMinis ->
-                if (route.id == r.id) { useSteps(withMinis.maneuvers); r = route }
+            if (start.maneuvers.any { it.type == ManeuverType.ROUNDABOUT }) {
+                Roundabouts.apply(start.deep())?.let { drawn ->
+                    if (route.id != start.id || stopped) return@launch
+                    val byStep = drawn.maneuvers.filter { it.type == ManeuverType.ROUNDABOUT }
+                        .associateBy { it.alongMeters to it.leavesRoundabout }
+                    val steps = route.maneuvers.map { m ->
+                        val actual = byStep[m.alongMeters to m.leavesRoundabout]
+                            ?.takeIf { m.type == ManeuverType.ROUNDABOUT } ?: return@map m
+                        m.copy(roundabout = actual.roundabout, exit = actual.exit, instruction = actual.instruction)
+                    }.toMutableList()
+                    // Geometry and step indices didn't change. Keep the tracker on the current leg.
+                    route = route.copy(maneuvers = steps)
+                    Roundabouts.withEntryLanes(route.maneuvers, entryLanes)?.let { route = route.copy(maneuvers = it) }
+                }
             }
-            if (r.maneuvers.none { it.type == ManeuverType.ROUNDABOUT }) return@launch
-            val drawn = Roundabouts.apply(r.deep()) ?: return@launch
-            if (route.id != r.id || route.maneuvers.size != drawn.maneuvers.size) return@launch
-            val steps = route.maneuvers.mapIndexed { i, m -> m.copy(roundabout = drawn.maneuvers[i].roundabout) }.toMutableList()
-            // Only the pictures change, not the steps: the tracker keeps its place on the route,
-            // like the iPhone's (a new one could snap to the wrong part of a route that loops back).
-            route = route.copy(maneuvers = steps)
-            // The road matcher's lane counts, where OpenStreetMap's layout came without them.
-            Roundabouts.withEntryLanes(route.maneuvers, entryLanes)?.let { route = route.copy(maneuvers = it) }
+            if (route.id != start.id || stopped) return@launch
+            Roundabouts.addMinis(route.deep())?.let { withMinis ->
+                if (route.id == start.id && !stopped) useSteps(withMinis.maneuvers)
+            }
         }
     }
 
@@ -559,6 +571,7 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
         roadControlsAt = 0L
         roadControlsAlong = -10_000.0
         nearRoadControls = emptyList()
+        nearRoadControlsCoverage = 1.0..0.0
         allRoadControls = emptyList()
         roadControls = route.roadControls
         camerasTick++
@@ -601,19 +614,12 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
             val known = withContext(Dispatchers.Default) {
                 val k = RoadCache.shared.along(line)
                 val cams = CameraAlerts.project(k.cameras.filter { if (it.kind == RoadCamera.Kind.SPEED) speed else plate }, line)
-                val cachedControls = Overpass.projectControls(k.signals.map {
-                    Overpass.RoadsideNode(Overpass.ControlKind.SIGNAL, it)
-                }, line)
-                Triple(cams, if (k.ways.isEmpty()) emptyList() else Overpass.speedLimits(k.ways, line), cachedControls)
+                cams to if (k.ways.isEmpty()) emptyList() else Overpass.speedLimits(k.ways, line)
             }
             if (route.id != id || fullRoadData) return
             if (known.second.isNotEmpty() && !matchedLimits) setLimits(known.second)
             routeCameras = onOurSide(known.first)
             zones = CameraAlerts.averageZones(known.first)
-            if (allRoadControls.isEmpty() && known.third.isNotEmpty()) {
-                allRoadControls = known.third
-                publishRoadControls()
-            }
             camerasTick++
         }
         scope.launch { useKnown() }
@@ -682,7 +688,8 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
         if (AppSettings.cameraWarnings && cam.kind == RoadCamera.Kind.SPEED && !cam.quiet) {
             chime()
             if (!repeatRun) {
-                speak((if (cam.average) "Average speed camera ahead" else "Speed camera ahead") + (limit?.let { ", limit ${Fmt.spokenSpeed(it)}." } ?: "."), alert = true)
+                val warning = if (cam.average) kt("Average speed camera ahead", "Pozor, úsekové měření rychlosti") else kt("Speed camera ahead", "Pozor, radar")
+                speak(warning + (limit?.let { kt(", limit ", ", limit je ") + Fmt.spokenSpeed(it) + "." } ?: "."), alert = true)
             }
             cameraSpokenAt = now()
             cameraSpokenLimit = limit
@@ -754,7 +761,8 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
         Voice.buzz()
         if (s.wazeVoice && !Voice.onCall) {
             chime()
-            speak("${next.alert.spoken.dropLast(1)}, in ${Fmt.spokenDistance(ahead)}.", alert = true)
+            speak(kt("${next.alert.spoken.dropLast(1)}, in ${Fmt.spokenDistance(ahead)}.",
+                "Za ${Fmt.spokenDistance(ahead)}: ${localizeLabel(next.alert.title)}."), alert = true)
         }
     }
 
@@ -763,20 +771,21 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
         if (demoAlerts) return
         val s = AppSettings
         if (route.mode != TravelMode.DRIVE || !s.wazeOn || !s.policeRisk || !s.wazePolice) { policeRisk = null; return }
+        val to = p.alongMeters + 3000
+        val live = routeWaze.count { it.alert.kind == WazeAlert.Kind.POLICE && s.shows(it.alert) && it.along > p.alongMeters && it.along < to }
+        if (live == 0) { policeRisk = null; riskAt = 0L; return }
         if (since(riskAt) <= 20) return
         riskAt = now()
         if (riskPast == null) riskPast = WazeHistory.reports
-        val to = p.alongMeters + 3000
         val ahead = Geo.slice(route.polyline, p.alongMeters, to)
-        val live = routeWaze.count { it.alert.kind == WazeAlert.Kind.POLICE && s.shows(it.alert) && it.along > p.alongMeters && it.along < to }
         val score = PoliceRisk.score(ahead, riskPast ?: emptyList(), live)
         val was = policeRisk?.let { PoliceRisk.level(it) } ?: PoliceRisk.Level.LOW
         policeRisk = score
         if (PoliceRisk.level(score) == PoliceRisk.Level.HIGH && was != PoliceRisk.Level.HIGH && s.wazeVoice && !Voice.onCall &&
             since(riskSpokenAt) > 600 &&
-            (live == 0 || PoliceRisk.level(PoliceRisk.score(ahead, riskPast ?: emptyList(), 0)) == PoliceRisk.Level.HIGH)) {
+            (PoliceRisk.level(PoliceRisk.score(ahead, riskPast ?: emptyList(), 0)) == PoliceRisk.Level.HIGH)) {
             riskSpokenAt = now()
-            speak("Police hotspot ahead.", alert = true)
+            speak(kt("Police hotspot ahead.", "Před vámi je častý výskyt policejních hlídek."), alert = true)
         }
     }
 
@@ -805,7 +814,7 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
             if (spokenAircraft.add(a.id)) {
                 Voice.buzz()
                 chime()
-                if (!Voice.onCall) speak("${a.title} nearby.", alert = true)
+                if (!Voice.onCall) speak(kt("${a.title} nearby.", "V okolí: ${localizeLabel(a.title)}."), alert = true)
             }
         }
     }
@@ -832,7 +841,7 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
             } else {
                 zoneEntry = null
                 averageCheck = null
-                if (AppSettings.cameraWarnings) speak("Average speed check ended.", alert = true)
+                if (AppSettings.cameraWarnings) speak(kt("Average speed check ended.", "Konec úsekového měření rychlosti."), alert = true)
             }
         }
         val i = inside ?: return
@@ -851,7 +860,9 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
                 zoneEntry = ZoneEntry(z.startMeters, z.endMeters, now(), at, zk)
                 if (AppSettings.cameraWarnings) {
                     chime()
-                    speak("Average speed check for ${Fmt.spokenDistance(z.endMeters - at)}" + (limit?.let { ", limit ${Fmt.spokenSpeed(it)}." } ?: "."), alert = true)
+                    val length = Fmt.spokenDistance(z.endMeters - at)
+                    speak(kt("Average speed check for $length", "Úsekové měření rychlosti. Délka úseku $length") +
+                        (limit?.let { kt(", limit ", ", limit je ") + Fmt.spokenSpeed(it) + "." } ?: "."), alert = true)
                 }
             }
             zoneCarry = null
@@ -945,16 +956,18 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
         } else if (d <= near && d > nowD + 30 && stage < 2) {
             spokenStage[i] = 2
             val lane = LaneGuide.lanes(m, Geo.drivesOnLeft(m.location))?.let { g ->
-                if (g.second.startsWith("Lane")) ". Use " + g.second.lowercase().replace("from left", "from the left")
+                if (czechUi) LaneGuide.czechAdvice(g.first) else if (g.second.startsWith("Lane")) ". Use " + g.second.lowercase().replace("from left", "from the left")
                 else ". Use the ${g.second.lowercase()}"
             } ?: ""
-            val words = if (m.type == ManeuverType.ARRIVE) destinationSide?.let { "your destination is on the $it" } ?: "your destination is ahead"
-                else m.spokenWords.lowercasedFirst()
-            speak("In ${Fmt.spokenDistance(d)}, $words${if (m.type == ManeuverType.ARRIVE) "" else thenWords(i)}$lane")
+            val words = if (m.type == ManeuverType.ARRIVE) {
+                val english = destinationSide?.let { "your destination is on the $it" } ?: "your destination is ahead"
+                kt(english, when (destinationSide) { "left" -> "je cíl vlevo"; "right" -> "je cíl vpravo"; else -> "je cíl před vámi" })
+            } else m.spokenWords.lowercasedFirst()
+            speak(announcedIn(d, words) + (if (m.type == ManeuverType.ARRIVE) "" else thenWords(i)) + lane)
         } else if (d <= far && d > near + 150 && stage < 1 && m.type != ManeuverType.ARRIVE) {
             spokenStage[i] = 1
             if (Voice.onCall) return
-            speak("In ${Fmt.spokenDistance(d)}, ${m.spokenWords.lowercasedFirst()}")
+            speak(announcedIn(d, m.spokenWords.lowercasedFirst()))
         } else if (drive && d > 3000 && stage < 1 && !toldContinue.contains(i) && justPassed(p)) {
             toldContinue.add(i)
             if (!Voice.onCall) speak(continueWords(d))
@@ -1012,11 +1025,17 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
             }
             val current = nowP.remainingSeconds
             val saving = current - fresh.durationSeconds
-            val sameWay = abs(fresh.distanceMeters - nowP.remainingMeters) < max(300.0, nowP.remainingMeters * 0.03)
+            val left = withContext(Dispatchers.Default) {
+                Geo.slice(currentRoute.polyline, p.alongMeters, Geo.length(currentRoute.polyline))
+            }
+            val sameWay = withContext(Dispatchers.Default) { Directions.sameRoads(left, fresh.polyline) }
+            if (route.id != id || stopped || arrived || rerouting || progress?.offRoute == true) return@launch
             // A faster way back along a road that was tapped away is no offer at all.
-            if (!sameWay && saving > max(300.0, current * 0.1) && !Directions.touches(fresh.polyline, avoid)) {
-                val left = Geo.slice(route.polyline, nowP.alongMeters, Geo.length(route.polyline))
-                offerFaster(fresh, saving, nowP.remainingMeters, left)
+            if (!sameWay && saving > max(120.0, current * 0.08) && !Directions.touches(fresh.polyline, avoid)) {
+                val congestionAhead = previousTraffic.any {
+                    it.level >= 2 && it.startMeters + it.lengthMeters >= nowP.alongMeters
+                }
+                offerFaster(fresh, saving, nowP.remainingMeters, left, congestionAhead)
             } else if (sameWay) {
                 trafficScale = min(3.0, max(0.5, fresh.durationSeconds / planned))
                 if (fresh.source == "mapbox" || fresh.source == "google") {
@@ -1033,25 +1052,26 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
 
     /**
      * A faster way is offered on a card with two big buttons, like Waze, rather than the line on the
-     * map just changing. Left alone, it's taken after a few seconds, so ignoring it works as before.
+     * map just changing. The alternative expires unless the driver accepts it.
      */
-    private fun offerFaster(fresh: Route, saving: Double, remainingMeters: Double, remainingLine: List<LatLng>) {
+    private fun offerFaster(fresh: Route, saving: Double, remainingMeters: Double,
+                            remainingLine: List<LatLng>, congestionAhead: Boolean) {
         val minutes = max(1, (saving / 60).roundToInt())
         // What else changes, so it's an easy call: longer or shorter, and any pay-later charge it adds.
         val clean = AppSettings.cleanCar
         val had = (RoadCharges.on(remainingLine) + CleanAirZones.on(remainingLine, clean)).map { it.name }.toSet()
         val charges = (RoadCharges.on(fresh.polyline) + CleanAirZones.on(fresh.polyline, clean)).map { it.name }.filter { it !in had }
-        val offer = FasterOffer(minutes, fresh.summary, now() + FASTER_WAIT_MS, fresh.distanceMeters - remainingMeters, charges)
+        val offer = FasterOffer(minutes, fresh.summary, now() + FASTER_WAIT_MS, fresh.distanceMeters - remainingMeters, charges, congestionAhead)
         fasterRoute = fresh
         fasterOffer = offer
-        speak("Found a faster route. It saves $minutes minutes.")
+        speak(kt("Found a faster route. It saves $minutes minutes.", "Našel jsem rychlejší trasu. Úspora: $minutes minut."))
         scope.launch {
             delay(FASTER_WAIT_MS)
-            if (fasterOffer === offer) takeFaster()
+            if (fasterOffer === offer) keepRoute()
         }
     }
 
-    /** "Take it" on the card, or nothing tapped in time. */
+    /** Adopt the alternate route after the driver accepts it. */
     fun takeFaster() {
         val fresh = fasterRoute
         fasterOffer = null
@@ -1083,6 +1103,7 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
         val p = progress
         val next = p?.nextIndex
         if (p != null && next != null && route.maneuvers.subList(0, next).any { it.alongMeters > p.alongMeters && it.road != null && it.road != road }) road = null
+        if (czechUi) return "Pokračujte" + (road?.let { " po silnici $it" } ?: "") + " ještě ${Fmt.spokenDistance(meters)}."
         return "Continue " + (road?.let { "on $it " } ?: "") + "for ${Fmt.spokenDistance(meters)}."
     }
 
@@ -1098,7 +1119,7 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
             speak(continueWords(d))
         } else {
             spokenStage[i] = if (d <= near) 2 else 1
-            speak("In ${Fmt.spokenDistance(d)}, ${m.spokenWords.lowercasedFirst()}")
+            speak(announcedIn(d, m.spokenWords.lowercasedFirst()))
         }
     }
 
@@ -1123,11 +1144,11 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
         if (!Connectivity.online) {
             if (!quiet && !toldNoSignal) {
                 toldNoSignal = true
-                speak("No signal. Keep going, and Kite will find a new route when it's back.")
+                speak(kt("No signal. Keep going, and Kite will find a new route when it's back.", "Bez připojení. Pokračujte, trasu přepočítám po obnovení připojení."))
             }
         } else if (!quiet && since(rerouteSpokenAt) > 45 && loc.coord.distanceTo(destination.location) > 150) {
             rerouteSpokenAt = now()
-            speak("Rerouting.")
+            speak(kt("Rerouting.", "Přepočítávám trasu."))
         }
         val from = loc.coord
         val course = if (route.mode == TravelMode.DRIVE) heading(loc) else null
@@ -1155,17 +1176,17 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
             if (arrived || removing != null && stops != previousStops) return@launch
             val fresh = r?.routes?.firstOrNull()
             if (fresh == null) {
-                if (removing != null) speak("Couldn't skip the next stop. Keeping your route.")
+                if (removing != null) speak(kt("Couldn't skip the next stop. Keeping your route.", "Zastávku se nepodařilo vynechat. Pokračujte po původní trase."))
                 if (parking != null) {
                     parkingOfferDismissed = false
-                    speak("Couldn't route to that parking area. Continuing to ${destination.name}.")
+                    speak(kt("Couldn't route to that parking area. Continuing to ${destination.name}.", "Parkoviště není dostupné. Pokračujte směr ${destination.name}."))
                 }
                 // The stop just added couldn't be routed to: say so, and don't keep it as if it were on the way.
                 val i = if (adding != null) stops.indexOfFirst { it.id == adding.id } else -1
                 if (adding != null && i >= 0) {
                     // Only the one just added (at the front), not the same place planned earlier.
                     stops = stops.toMutableList().also { it.removeAt(i) }
-                    speak("Couldn't add a stop at ${adding.name}. Carrying on to ${stops.firstOrNull()?.name ?: destination.name}.")
+                    speak(kt("Couldn't add a stop at ${adding.name}. Carrying on to ${stops.firstOrNull()?.name ?: destination.name}.", "Zastávku ${adding.name} se nepodařilo přidat. Pokračujte po původní trase."))
                 }
                 return@launch
             }
@@ -1174,11 +1195,11 @@ class Navigator(route0: Route, destination0: Place, stops0: List<Place>, private
                 originalParkingDestination = destination
                 destination = parking
                 parkingOfferDismissed = true
-                speak("Routing to ${parking.name}.")
+                speak(kt("Routing to ${parking.name}.", "Přepočítávám trasu k parkovišti ${parking.name}."))
             }
             if (removing != null) {
                 stops = previousStops.drop(1)
-                speak("Skipped ${removing.name}.")
+                speak(kt("Skipped ${removing.name}.", "Vynechávám zastávku ${removing.name}."))
             }
             adopt(fresh)
             if (!quiet) sayNewRoute()
@@ -1239,6 +1260,20 @@ object LaneGuide {
     }
 
     /** The lanes with words for the good ones, by the edge they touch. */
+    fun czechAdvice(lanes: List<Lane>): String {
+        val valid = lanes.indices.filter { lanes[it].valid }
+        if (valid.isEmpty()) return ""
+        val label = when {
+            valid.size == 1 && valid.first() == 0 -> "levý pruh"
+            valid.size == 1 && valid.last() == lanes.lastIndex -> "pravý pruh"
+            valid.size == 1 -> "${valid.first() + 1}. pruh zleva"
+            valid.first() == 0 && valid.last() == valid.size - 1 -> "${valid.size} pruhy vlevo"
+            valid.last() == lanes.lastIndex && valid.first() == lanes.size - valid.size -> "${valid.size} pruhy vpravo"
+            else -> return ""
+        }
+        return ". Použijte $label."
+    }
+
     fun named(lanes: List<Lane>): Pair<List<Lane>, String>? {
         val valid = lanes.indices.filter { lanes[it].valid }
         val first = valid.firstOrNull() ?: return null
@@ -1263,6 +1298,7 @@ object LaneGuide {
  */
 val Maneuver.spokenWords: String
     get() {
+        if (czechUi) return czechInstruction()
         val r = road?.trim()
         if (type != ManeuverType.ROUNDABOUT || leavesRoundabout || r.isNullOrEmpty() || instruction.contains(" onto ") || instruction.contains(" toward")) return instruction
         return "$instruction onto $r"

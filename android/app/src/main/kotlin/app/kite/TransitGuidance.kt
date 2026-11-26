@@ -125,7 +125,8 @@ class TransitGuidance(val trip: TransitTrip, val destination: Place) {
         if (toldExit) return
         val stop = leg?.toName?.takeIf(String::isNotBlank) ?: return
         toldExit = true
-        val text = if (scheduled) "Scheduled exit coming up at $stop." else "Get off at the next stop, $stop."
+        val text = if (scheduled) kt("Scheduled exit coming up at $stop.", "Blíží se plánovaný výstup na zastávce $stop.")
+            else kt("Get off at the next stop, $stop.", "Na příští zastávce vystupte. $stop.")
         announce(text)
         if (AppSettings.transitExitAlerts) TransitReminders.exit(text)
     }
@@ -133,7 +134,8 @@ class TransitGuidance(val trip: TransitTrip, val destination: Place) {
     private fun sayNext(call: TransitCall?, scheduled: Boolean) {
         if (call == null || call == saidNext) return
         saidNext = call
-        announce(if (scheduled) "Scheduled next stop, ${call.name}." else "Next stop, ${call.name}.")
+        announce(if (scheduled) kt("Scheduled next stop, ${call.name}.", "Podle jízdního řádu následuje zastávka ${call.name}.")
+            else kt("Next stop, ${call.name}.", "Příští zastávka ${call.name}."))
     }
 
     private fun announce(text: String) {

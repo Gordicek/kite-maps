@@ -5,6 +5,7 @@ import android.view.MotionEvent
 import android.graphics.PointF
 import android.view.HapticFeedbackConstants
 import android.os.SystemClock
+import android.util.Log
 import android.widget.FrameLayout
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -22,10 +23,32 @@ class KiteMapSurface(
     private var activeToken: String? = null
     private var useStandard = false
     private var destroyed = false
+    private var requestedLook: MapboxScenery.Look? = null
+    private val startStandard = Runnable {
+        val token = activeToken ?: return@Runnable
+        val look = requestedLook ?: return@Runnable
+        if (destroyed || standard != null) return@Runnable
+        try {
+            scenery.setLook(look)
+            standard = scenery.attach(context, token).also { map ->
+                map.alpha = 0f
+                addView(map, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            }
+        } catch (e: RuntimeException) {
+            Log.w("KiteMapSurface", "Mapbox initialization failed", e)
+            scenery.abortAttach()
+            standard = null
+        }
+    }
     private val observer = LifecycleEventObserver { _, event ->
         when (event) {
             Lifecycle.Event.ON_START -> classic.onStart()
-            Lifecycle.Event.ON_RESUME -> classic.onResume()
+            Lifecycle.Event.ON_RESUME -> {
+                classic.onResume()
+                postOnAnimation {
+                    if (!destroyed && !model.glide.mapTouched) model.glide.restoreFollowingCamera()
+                }
+            }
             Lifecycle.Event.ON_PAUSE -> classic.onPause()
             Lifecycle.Event.ON_STOP -> classic.onStop()
             Lifecycle.Event.ON_DESTROY -> dispose()
@@ -43,15 +66,13 @@ class KiteMapSurface(
 
     fun show(token: String?, ready: Boolean, look: MapboxScenery.Look) {
         if (destroyed) return
+        requestedLook = look
         if (token != activeToken) {
+            removeCallbacks(startStandard)
             removeStandard()
             activeToken = token
-            if (token != null) {
-                scenery.setLook(look)
-                standard = scenery.attach(context, token).also {
-                    addView(it, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-                }
-            }
+            // Let the fallback attach and produce its first frame before the second renderer starts.
+            if (token != null) postDelayed(startStandard, 240)
         }
         val showStandard = ready && standard != null
         val rendererChanged = useStandard != showStandard
@@ -59,13 +80,20 @@ class KiteMapSurface(
         useStandard = showStandard
         standard?.alpha = if (showStandard) 1f else 0f
         classic.alpha = if (showStandard) 0f else 1f
-        if (rendererChanged) model.glide.restoreFollowingCamera()
+        if (rendererChanged) {
+            kite.refreshScenery()
+            model.glide.restoreFollowingCamera()
+        }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (w != 0 && h != 0) postOnAnimation {
-            if (!destroyed) model.glide.restoreFollowingCamera()
+            if (!destroyed) {
+                val density = resources.displayMetrics.density
+                model.glide.resize(w / density, h / density)
+                model.glide.restoreFollowingCamera()
+            }
         }
     }
 
@@ -136,6 +164,7 @@ class KiteMapSurface(
         destroyed = true
         cancelHold()
         lifecycle.removeObserver(observer)
+        removeCallbacks(startStandard)
         kite.detach(classic)
         removeStandard()
         classic.onDestroy()

@@ -61,7 +61,12 @@ object LocationService {
     /** Test drives on the build's emulator: fixes come from a made-up drive, not the GPS. */
     var simulating = false
 
-    fun inject(f: Fix) { last = f; onUpdate?.invoke(f) }
+    fun inject(f: Fix) = publish(f)
+
+    private fun publish(fix: Fix) {
+        last = fix
+        onUpdate?.invoke(fix)
+    }
 
     private fun handle(loc: Location) {
         if (simulating) return
@@ -81,8 +86,7 @@ object LocationService {
                 (!loc.hasBearingAccuracy() || loc.bearingAccuracyDegrees < 45)) loc.bearing.toDouble() else -1.0,
             loc.altitude, loc.time, taken,
         )
-        last = f
-        onUpdate?.invoke(f)
+        publish(f)
     }
 
     /** When [loc] was taken, by the phone's running timer; from its clock time only if the timer's is missing. */
@@ -134,8 +138,9 @@ object LocationService {
             .maxByOrNull { it.elapsedRealtimeNanos }
         // At most 2 minutes old, like the iPhone: an older one is somewhere already left.
         val bestAt = best?.let { takenAt(it) }
-        if (best != null && bestAt != null && last == null && SystemClock.elapsedRealtime() - bestAt < 2 * 60_000) {
-            last = Fix(best.latitude, best.longitude, best.accuracy.toDouble(), -1.0, -1.0, best.altitude, best.time, bestAt)
+        if (!simulating && best != null && bestAt != null && last == null &&
+            SystemClock.elapsedRealtime() - bestAt in 0..120_000L) {
+            publish(Fix(best.latitude, best.longitude, best.accuracy.toDouble(), -1.0, -1.0, best.altitude, best.time, bestAt))
         }
     }
 

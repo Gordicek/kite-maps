@@ -5,4 +5,8 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
+    <style name="Animation.KiteSearch" parent="@android:style/Animation">
+        <item name="android:windowEnterAnimation">@anim/kite_search_enter</item>
+        <item name="android:windowExitAnimation">@anim/kite_search_exit</item>
+    </style>
 </resources>

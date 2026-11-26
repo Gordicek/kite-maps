@@ -26,6 +26,8 @@ import java.util.Locale
 object Voice {
     private var tts: TextToSpeech? = null
     private var ready = false
+    private var language: Locale? = null
+    private var generation = 0
     private val pending = mutableListOf<String>()
     private val am by lazy { KiteApp.app.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     private val main = Handler(Looper.getMainLooper())
@@ -44,28 +46,37 @@ object Voice {
     var missing by mutableStateOf(false)
 
     fun warmUp() {
-        if (tts != null) return
+        val selected = if (czechUi) Locale.forLanguageTag("cs-CZ")
+            else Locale.getDefault().takeIf { it.language == "en" } ?: if (Fmt.yards) Locale.UK else Locale.US
+        if (tts != null && language == selected) return
+        if (tts != null) {
+            stop()
+            tts?.shutdown()
+            ready = false
+        }
+        language = selected
+        val request = ++generation
         tts = TextToSpeech(KiteApp.app) { status ->
+            if (request != generation) return@TextToSpeech
             if (status != TextToSpeech.SUCCESS) { noVoice(); return@TextToSpeech }
             val t = tts ?: return@TextToSpeech
             // Off the main thread: this callback comes on it, and asking the speech app for its voices
             // can take several seconds (Google's sends back a long list). Done here it froze Kite at launch
             // long enough for Android to report it as not responding.
-            Thread { setUp(t) }.start()
+            Thread { setUp(t, selected, request) }.start()
         }
     }
 
     /** Language, best voice, speed and listener, on a background thread; then queued words are spoken. */
-    private fun setUp(t: TextToSpeech) {
+    private fun setUp(t: TextToSpeech, lang: Locale, request: Int) {
         runCatching {
             t.setAudioAttributes(attrs)
-            val lang = Locale.getDefault().takeIf { it.language == "en" } ?: if (Fmt.yards) Locale.UK else Locale.US
             val ok = runCatching {
-                t.setLanguage(lang) >= TextToSpeech.LANG_AVAILABLE || t.setLanguage(Locale.UK) >= TextToSpeech.LANG_AVAILABLE ||
-                    t.setLanguage(Locale.US) >= TextToSpeech.LANG_AVAILABLE
+                t.setLanguage(lang) >= TextToSpeech.LANG_AVAILABLE ||
+                    lang.language == "en" && (t.setLanguage(Locale.UK) >= TextToSpeech.LANG_AVAILABLE ||
+                        t.setLanguage(Locale.US) >= TextToSpeech.LANG_AVAILABLE)
             }.getOrDefault(false)
-            if (!ok) { noVoice(); return }
-            main.post { missing = false }
+            if (!ok) { noVoice(request); return }
             // The best-sounding voice installed for that language that works offline.
             runCatching {
                 t.voices?.filter { it.locale == t.voice?.locale && !it.isNetworkConnectionRequired && "notinstalled" !in it.features }
@@ -78,19 +89,22 @@ object Voice {
                 @Deprecated("old API") override fun onError(id: String?) = finished()
                 override fun onStop(id: String?, interrupted: Boolean) = finished()
             })
-        }.onFailure { noVoice(); return }
+        }.onFailure { noVoice(request); return }
         main.post {
             // Kite may have given up on this one meanwhile (no voice found): only the current one counts.
             if (tts !== t) return@post
+            missing = false
             ready = true
-            pending.forEach { say(it) }
+            val waiting = pending.toList()
             pending.clear()
+            waiting.forEach { say(it) }
         }
     }
 
     /** Nothing to speak with: say so on screen, and try again from scratch next time (one may be installed by then). */
-    private fun noVoice() {
+    private fun noVoice(request: Int = generation) {
         main.post {
+            if (request != generation) return@post
             Log.i("KiteVoice", "no text-to-speech voice")
             runCatching { tts?.shutdown() }
             tts = null
@@ -117,12 +131,13 @@ object Voice {
 
     /** Says [text]; [urgent] cuts off whatever is being said first. */
     fun say(text: String, urgent: Boolean = false) {
-        val said = SpokenText.forVoice(text)
+        val said = if (czechUi) text else SpokenText.forVoice(text)
         // Logged even when silent, so a test drive can be checked afterwards.
         Log.i("KiteVoice", "say: $said")
         if (silent) return
+        warmUp()
         val t = tts
-        if (t == null || !ready) { warmUp(); pending.add(said); return }
+        if (t == null || !ready) { pending.add(text); return }
         am.requestAudioFocus(focus)
         speaking++
         t.speak(said, if (urgent) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, "kite${System.nanoTime()}")

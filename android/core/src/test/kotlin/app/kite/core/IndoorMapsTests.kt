@@ -1,6 +1,8 @@
 package app.kite.core
 
 import kotlin.test.Test
+import kotlin.test.assertNull
+import kotlin.test.assertNotNull
 import kotlin.test.assertEquals
 
 class IndoorMapsTests {
@@ -30,5 +32,19 @@ class IndoorMapsTests {
         """.trimIndent().toByteArray())
         assertEquals(listOf("-1"), plan.floors)
         assertEquals(listOf(LatLng(52.5, 13.37), LatLng(52.501, 13.37)), plan.features.single().geometry)
+    }
+    @Test fun indoorGuideFollowsConnectedCorridorsOnTheSelectedFloor() {
+        val a = LatLng(49.0, 17.0)
+        val b = LatLng(49.0002, 17.0)
+        val c = LatLng(49.0002, 17.0004)
+        val floors = setOf("0")
+        val corridor = IndoorMaps.Feature(floors, "corridor", null, listOf(a, b, c))
+        val shop = IndoorMaps.Feature(floors, "shop", "Shop", listOf(c))
+        val plan = IndoorMaps.Plan(listOf(corridor, shop))
+        val guide = assertNotNull(IndoorMaps.walkingGuide(plan, "0", a, shop))
+        assertEquals(listOf(a, b, c), guide)
+        assertNull(IndoorMaps.walkingGuide(plan, "1", a, shop))
+        val disconnected = shop.copy(geometry = listOf(LatLng(49.001, 17.0)))
+        assertNull(IndoorMaps.walkingGuide(plan, "0", a, disconnected))
     }
 }

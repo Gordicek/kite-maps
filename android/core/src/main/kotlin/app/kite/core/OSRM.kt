@@ -130,12 +130,30 @@ object OSRM {
             var leftMotorway: String? = null
             val legs = r["legs"].asMaps() ?: emptyList()
             val controls = mutableListOf<Overpass.RoadsideNode>()
+            val approaches = mutableListOf<LaneApproach>()
+            fun projectStep(at: LatLng, from: Double, to: Double): Projection {
+                val start = (from - 65).coerceIn(0.0, cum.last())
+                val end = (to + 65).coerceIn(start, cum.last())
+                val hit = Geo.project(at, Geo.slice(line, start, end, cum))
+                return hit.copy(along = hit.along + start)
+            }
             for ((li, leg) in legs.withIndex()) {
                 val steps = leg["steps"].asMaps() ?: emptyList()
                 for ((si, step) in steps.withIndex()) {
-                    if (source == "mapbox") {
-                        for (intersection in step["intersections"].asMaps().orEmpty()) {
-                            val at = loc(intersection["location"]) ?: continue
+                    val dist = step["distance"].num() ?: 0.0
+                    val intersections = step["intersections"].asMaps().orEmpty()
+                    for ((ii, intersection) in intersections.withIndex()) {
+                        val at = loc(intersection["location"]) ?: continue
+                        if (mode == TravelMode.DRIVE && ii > 0) {
+                            val lanes = intersectionLanes(intersection)
+                            if (lanes.isNotEmpty()) {
+                                val hit = projectStep(at, along, along + dist)
+                                if (hit.offset <= 12 && hit.along > along - 8 && hit.along <= along + dist + 8 &&
+                                    hit.along > 6 && hit.along < cum.last() - 6)
+                                    approaches += LaneApproach(hit.along, lanes)
+                            }
+                        }
+                        if (source == "mapbox") {
                             if (intersection["traffic_signal"] == true) controls += Overpass.RoadsideNode(Overpass.ControlKind.SIGNAL, at)
                             if (intersection["stop_sign"] == true) controls += Overpass.RoadsideNode(Overpass.ControlKind.STOP, at)
                             if (intersection["railway_crossing"] == true) controls += Overpass.RoadsideNode(Overpass.ControlKind.RAIL, at)
@@ -143,7 +161,6 @@ object OSRM {
                     }
                     val m = step["maneuver"].asMap() ?: emptyMap()
                     val type = m["type"] as? String ?: ""
-                    val dist = step["distance"].num() ?: 0.0
                     if ((type == "arrive" && li < legs.size - 1) || (type == "depart" && li > 0)) {
                         maneuvers.lastOrNull()?.let { it.distanceMeters += dist }
                         along += dist
@@ -173,8 +190,13 @@ object OSRM {
                     } else null
                     val text = supplied
                         ?: instruction(type, modifier, stepRoad, exit, mode, signs)
-                    val man = Maneuver(mt, text, at,
-                        min(along, cum.last()), dist, stepRoad)
+                    val estimate = min(along, cum.last())
+                    val projected = projectStep(at, along, along)
+                    val progress = projected.along.takeIf {
+                        projected.offset <= 12 && abs(it - estimate) <= 55 &&
+                            it >= (maneuvers.lastOrNull()?.alongMeters ?: 0.0)
+                    } ?: estimate.coerceAtLeast(maneuvers.lastOrNull()?.alongMeters ?: 0.0)
+                    val man = Maneuver(mt, text, at, progress, dist, stepRoad)
                     man.lanes = lanes(step)
                     man.exit = exit
                     if (type == "roundabout" || type == "rotary") {
@@ -215,7 +237,7 @@ object OSRM {
                     maneuvers.lastOrNull()?.type != ManeuverType.ARRIVE)) return@mapNotNull null
             val typical = r["duration_typical"].num()?.takeIf { source == "mapbox" && it > 0 }
             val route = Route(mode, line, distance, typical ?: duration, duration.takeIf { typical != null },
-                via, maneuvers, source = source)
+                via, maneuvers, source = source, laneApproaches = approaches.distinctBy { it.alongMeters }.sortedBy { it.alongMeters })
             // Mapbox annotations can describe a different number of segments than the overview.
             val annotationCount = legs.sumOf { it["annotation"].asMap()?.get("maxspeed").asList()?.size ?: 0 }
             if (source != "mapbox" || annotationCount == cum.lastIndex) route.speedLimits = speedLimits(legs, cum)
@@ -291,12 +313,16 @@ object OSRM {
     /** The turn lanes at a step's maneuver point (its first intersection), left to right. */
     fun lanes(step: Map<String, Any?>): List<Lane> {
         val first = step["intersections"].asMaps()?.firstOrNull() ?: return emptyList()
-        val raw = first["lanes"].asMaps() ?: return emptyList()
+        return intersectionLanes(first)
+    }
+
+    private fun intersectionLanes(intersection: Map<String, Any?>): List<Lane> {
+        val raw = intersection["lanes"].asMaps() ?: return emptyList()
         if (raw.size <= 1) return emptyList()
         val lanes = raw.map { l ->
             Lane(l["indications"].asList()?.mapNotNull { it as? String } ?: listOf("none"), l["valid"] as? Boolean ?: false)
         }
-        return if (lanes.all { it.valid }) emptyList() else lanes
+        return if (lanes.any { it.valid } && lanes.any { !it.valid }) lanes else emptyList()
     }
 
     private val leftSide = setOf(ManeuverType.RAMP_LEFT, ManeuverType.FORK_LEFT, ManeuverType.KEEP_LEFT)
@@ -511,14 +537,16 @@ object Directions {
         alternatives: Boolean = false, mapboxToken: String? = null, engine: RouteEngine = RouteEngine.AUTO,
     ): Result = withContext(Dispatchers.Default) {
         if (engine == RouteEngine.GOOGLE && !useGoogle) return@withContext Result(emptyList(), "Google routing is disabled.")
-        if (engine == RouteEngine.MAPBOX || engine == RouteEngine.AUTO && mapboxToken != null && mode == TravelMode.DRIVE) {
-            val token = mapboxToken ?: return@withContext Result(emptyList(), "Mapbox routing needs a map token.")
-            val primary = MapboxDirections.routes(a, b, via, heading, avoidHighways, avoidTolls, alternatives, token, mode)
+        suspend fun mapbox(): List<Route> {
+            val token = mapboxToken ?: return emptyList()
+            return MapboxDirections.routes(a, b, via, heading, avoidHighways, avoidTolls, alternatives, token, mode)
                 .filter { reaches(it.polyline, a, b) }
-                .map { StepMerge.tidy(it.maneuvers); Roundabouts.settle(it) }
-            if (primary.isNotEmpty() || engine == RouteEngine.MAPBOX) {
-                return@withContext Result(primary, "Mapbox did not find a route.".takeIf { primary.isEmpty() })
-            }
+        }
+        fun finish(routes: List<Route>) = routes.map { StepMerge.tidy(it.maneuvers); Roundabouts.settle(it) }
+        if (engine == RouteEngine.MAPBOX) {
+            if (mapboxToken == null) return@withContext Result(emptyList(), "Mapbox routing needs a map token.")
+            val primary = finish(mapbox())
+            return@withContext Result(primary, "Mapbox did not find a route.".takeIf { primary.isEmpty() })
         }
         if (engine == RouteEngine.OPENSTREETMAP) {
             val routes = OSRM.route(a, b, mode, via, heading).filter { reaches(it.polyline, a, b) }
@@ -529,6 +557,15 @@ object Directions {
         // country) is millions of sums, enough to freeze the screen for seconds.
         // Ask both at once: Google's route knows traffic, OSRM's steps read better.
         val osrmTask = async(Dispatchers.IO) { runCatching { OSRM.route(a, b, mode, via, heading) } }
+        if (engine == RouteEngine.AUTO && mapboxToken != null && mode == TravelMode.DRIVE) {
+            val primary = mapbox()
+            if (primary.isNotEmpty()) {
+                // Keep the chosen Mapbox route. Supplement gaps only at matching approaches.
+                val open = deadline(1.2) { osrmTask.await().getOrNull() }.orEmpty()
+                osrmTask.cancel()
+                return@withContext Result(finish(primary.map { addMatchingLanes(it, open) }))
+            }
+        }
         if (mode == TravelMode.WALK && engine == RouteEngine.AUTO) {
             val walk = osrmTask.await().getOrNull().orEmpty().filter {
                 it.polyline.firstOrNull()?.distanceTo(a)?.let { d -> d <= 180 } == true &&
@@ -548,7 +585,8 @@ object Directions {
         var err: String? = null
         if (useGoogle) {
             try {
-                var g = GoogleClient.shared.directions(a, b, mode, avoidHighways, avoidTolls, via).toMutableList()
+                var g = GoogleClient.shared.directions(a, b, mode, avoidHighways, avoidTolls, via)
+                    .filter { reaches(it.polyline, a, b) }.toMutableList()
                 if (heading != null) {
                     var ahead = g.filter { !startsBehind(it.polyline, heading) }
                     if (ahead.isEmpty() && (avoidHighways || avoidTolls)) ahead = g
@@ -556,16 +594,21 @@ object Directions {
                 }
                 if (g.isNotEmpty()) {
                     if (!alternatives && g.size > 1) g = g.take(1).toMutableList()
-                    val wait = if (alternatives) 25.0 else 5.0
-                    val vias = mutableMapOf<Int, Route>()
-                    for (i in g.indices) {
-                        val line = g[i].polyline
-                        deadline(wait) { runCatching { OSRM.routeVia(line, mode) }.getOrNull() }?.let { vias[i] = it }
+                    val viaTasks = g.map { route ->
+                        async(Dispatchers.IO) { runCatching { OSRM.routeVia(route.polyline, mode, spacing = 550.0) }.getOrNull() }
                     }
-                    val plain = deadline(wait) { osrmTask.await().getOrNull() } ?: emptyList()
-                    val spare = plain.toMutableList()
+                    val plain = deadline(4.0) { osrmTask.await().getOrNull() }.orEmpty()
+                    val vias = deadline(2.0) { viaTasks.awaitAll() }.orEmpty()
+                    viaTasks.forEach { it.cancel() }
                     for (i in g.indices) {
-                        val candidates = vias[i]?.let { listOf(it) + plain } ?: plain
+                        val candidates = listOfNotNull(vias.getOrNull(i)) + plain
+                        if (mode == TravelMode.DRIVE) {
+                            val refined = candidates.firstNotNullOfOrNull { roadGeometry(g[i], it) }
+                            if (refined != null) {
+                                g[i] = refined
+                                continue
+                            }
+                        }
                         // Google's step positions are only trustworthy when its steps cover the whole line.
                         val complete = g[i].stepsComplete
                         val steps = StepMerge.adopt(candidates, g[i].polyline)
@@ -581,12 +624,8 @@ object Directions {
                             }
                             g[i].maneuvers = steps
                             g[i].stepsComplete = true
-                        } else if (engine == RouteEngine.AUTO && !g[i].stepsComplete && spare.isNotEmpty()) {
-                            val o = spare.removeAt(0).deep()
-                            val t = g[i].trafficSeconds
-                            if (t != null && g[i].typicalSeconds > 0) o.trafficSeconds = o.typicalSeconds * t / g[i].typicalSeconds
-                            g[i] = o
                         }
+                        g[i] = addMatchingLanes(g[i], candidates)
                     }
                     for (i in g.indices) {
                         for (m in g[i].maneuvers) if (m.type == ManeuverType.ROUNDABOUT && m.exit == null) m.exit = DirectionsParser.exitNumber(m.instruction)
@@ -604,7 +643,14 @@ object Directions {
                 err = e.message ?: "Google didn't answer."
             }
         }
-        if (engine == RouteEngine.GOOGLE) {
+        if (engine == RouteEngine.GOOGLE && mode == TravelMode.DRIVE && mapboxToken != null) {
+            val fallback = finish(mapbox())
+            if (fallback.isNotEmpty()) {
+                osrmTask.cancel()
+                return@withContext Result(fallback)
+            }
+        }
+        if (engine == RouteEngine.GOOGLE && (mode != TravelMode.DRIVE || avoidHighways || avoidTolls)) {
             osrmTask.cancel()
             return@withContext Result(emptyList(), err ?: "Google Maps did not find a route.")
         }
@@ -616,6 +662,94 @@ object Directions {
         open?.filter { reaches(it.polyline, a, b) }?.let { if (it.isNotEmpty()) return@withContext Result(it.map { r -> StepMerge.tidy(r.maneuvers); Roundabouts.settle(r) }) }
         o.exceptionOrNull()?.let { err = it.message }
         Result(emptyList(), noRouteReason(a, b, mode, open) ?: err ?: "No route found.")
+    }
+
+    /** Use the detailed road shape only when both providers chose the same directed route. */
+    internal fun roadGeometry(google: Route, roads: Route): Route? {
+        if (!roads.stepsComplete || roads.maneuvers.firstOrNull()?.type != ManeuverType.DEPART ||
+            roads.maneuvers.lastOrNull()?.type != ManeuverType.ARRIVE ||
+            !sameGuidedRoads(google.polyline, roads.polyline)) return null
+        val old = Geo.cumulative(google.polyline)
+        val shape = NearLine(roads.polyline)
+        fun relocate(distance: Double): Double? {
+            if (distance <= 0) return 0.0
+            if (distance >= old.last()) return shape.cum.last()
+            val hit = shape.project(Geo.point(google.polyline, distance, old))
+            return hit.along.takeIf { hit.offset <= 22 && abs(it - distance) <= 55 }
+        }
+        val traffic = google.trafficSpans.mapNotNull { span ->
+            val start = relocate(span.startMeters) ?: return@mapNotNull null
+            val end = relocate(span.startMeters + span.lengthMeters) ?: return@mapNotNull null
+            if (end > start) TrafficSpan(span.level, start, end - start) else null
+        }
+        val steps = roads.maneuvers.map { it.copy() }.toMutableList()
+        if (google.stepsComplete) {
+            // The detailed router owns the turns. Keep corroborating text hints and road signs.
+            val hints = google.maneuvers.mapNotNull { hint ->
+                val along = relocate(hint.alongMeters) ?: return@mapNotNull null
+                hint.copy(alongMeters = along, location = Geo.point(roads.polyline, along, shape.cum))
+            }
+            StepMerge.addGoogleLaneHints(steps, hints)
+            StepMerge.addGoogleSigns(steps, hints)
+        }
+        return google.copy(polyline = roads.polyline, distanceMeters = roads.distanceMeters,
+            maneuvers = steps, trafficSpans = traffic, speedLimits = roads.speedLimits,
+            stepsComplete = true, roadControls = roads.roadControls, laneApproaches = roads.laneApproaches)
+    }
+
+    private fun sameGuidedRoads(a: List<LatLng>, b: List<LatLng>): Boolean {
+        if (a.size < 2 || b.size < 2 || a.first().distanceTo(b.first()) > 22 || a.last().distanceTo(b.last()) > 22) return false
+        if (listOf(a, b).any { line -> (1 until line.size).any { abs(line[it].lng - line[it - 1].lng) > 180 } }) return false
+        val first = NearLine(a)
+        val second = NearLine(b)
+        if (abs(first.cum.last() - second.cum.last()) > max(35.0, first.cum.last() * 0.04)) return false
+        fun follows(source: NearLine, target: NearLine): Boolean {
+            val length = source.cum.last()
+            val checks = ceil(length / 24).toInt().coerceIn(2, 4_000)
+            var previous = 0.0
+            for (i in 1 until checks) {
+                val at = length * i / checks
+                val hit = target.project(Geo.point(source.line, at, source.cum))
+                if (hit.offset > 22 || hit.along < previous - 3 ||
+                    abs(hit.along - at * target.cum.last() / length) > 55) return false
+                val before = Geo.point(source.line, at - 9, source.cum)
+                val after = Geo.point(source.line, at + 9, source.cum)
+                val targetBefore = Geo.point(target.line, hit.along - 9, target.cum)
+                val targetAfter = Geo.point(target.line, hit.along + 9, target.cum)
+                if (Geo.diff(Geo.bearing(before, after), Geo.bearing(targetBefore, targetAfter)) > 68) return false
+                previous = hit.along
+            }
+            return true
+        }
+        return follows(first, second) && follows(second, first)
+    }
+
+    private fun addMatchingLanes(route: Route, candidates: List<Route>): Route {
+        val alternate = candidates.firstOrNull { other ->
+            (other.laneApproaches.isNotEmpty() || other.maneuvers.any { it.lanes.isNotEmpty() }) &&
+                sameGuidedRoads(route.polyline, other.polyline)
+        } ?: return route
+        val primary = NearLine(route.polyline)
+        val secondary = Geo.cumulative(alternate.polyline)
+        fun project(at: LatLng, along: Double): Double? {
+            val hit = primary.project(at)
+            return hit.along.takeIf {
+                hit.offset <= 12 && StepMerge.sameJunction(alternate.polyline, secondary, along, route.polyline, primary.cum, it)
+            }
+        }
+        val steps = route.maneuvers.map { it.copy() }.toMutableList()
+        for (m in alternate.maneuvers.filter { it.lanes.isNotEmpty() }) {
+            val along = project(m.location, m.alongMeters) ?: continue
+            val step = steps.filter { it.type == m.type && it.leavesRoundabout == m.leavesRoundabout }
+                .minByOrNull { abs(it.alongMeters - along) } ?: continue
+            if (step.lanes.isEmpty() && abs(step.alongMeters - along) <= 15) step.lanes = m.lanes
+        }
+        val approaches = route.laneApproaches.toMutableList()
+        for (lane in alternate.laneApproaches) {
+            val along = project(Geo.point(alternate.polyline, lane.alongMeters, secondary), lane.alongMeters) ?: continue
+            if (approaches.none { abs(it.alongMeters - along) < 20 }) approaches += lane.copy(alongMeters = along)
+        }
+        return route.copy(maneuvers = steps, laneApproaches = approaches.sortedBy { it.alongMeters })
     }
 
     /**
@@ -637,6 +771,21 @@ object Directions {
                 "No road goes all the way there. The sea or a ferry may be in the way."
             else -> null
         }
+    }
+
+    fun sameRoads(first: List<LatLng>, second: List<LatLng>): Boolean {
+        if (first.size < 2 || second.size < 2) return false
+        val firstDistances = Geo.cumulative(first)
+        val secondDistances = Geo.cumulative(second)
+        fun covered(line: List<LatLng>, distances: DoubleArray, reference: NearLine): Boolean {
+            val length = distances.last()
+            val samples = (length / 70).toInt().coerceIn(8, 320)
+            return (1 until samples).all { i ->
+                reference.project(Geo.point(line, length * i / samples, distances)).offset <= 35.0
+            }
+        }
+        return covered(first, firstDistances, NearLine(second, secondDistances)) &&
+            covered(second, secondDistances, NearLine(first, firstDistances))
     }
 
     /** Whether [line] starts and ends within 5 km of where it was asked to go from and to. */
@@ -666,12 +815,14 @@ object StepMerge {
         var bestScore = 0.0
         for (o in candidates) {
             if (!follows(o.polyline, line, cum) || !follows(line, o.polyline, Geo.cumulative(o.polyline))) continue
+            val source = NearLine(o.polyline)
             val mids = o.maneuvers.filter { it.type != ManeuverType.DEPART && it.type != ManeuverType.ARRIVE }
             val placed = mutableListOf<Maneuver>()
             var last = 0.0
             for (m in mids) {
                 val p = Geo.project(m.location, line, cum)
                 if (!(p.offset < 40 && p.along >= last - 30 && p.along < total - 5)) continue
+                if (!sameJunction(o.polyline, source.cum, source.project(m.location).along, line, cum, p.along)) continue
                 last = max(last, p.along)
                 placed.add(m.copy(alongMeters = last, location = Geo.point(line, last, cum)))
             }
@@ -732,7 +883,8 @@ object StepMerge {
         val hints = google.filter { it.laneHint != null }
         for (g in hints) {
             val s = open.minByOrNull { abs(it.alongMeters - g.alongMeters) } ?: continue
-            if (abs(s.alongMeters - g.alongMeters) >= 150) continue
+            if (s.type != g.type || abs(s.alongMeters - g.alongMeters) >= 65 ||
+                s.location.distanceTo(g.location) > 25) continue
             val back = hints.minByOrNull { abs(it.alongMeters - s.alongMeters) } ?: continue
             if (back.alongMeters == g.alongMeters) s.laneHint = g.laneHint
         }

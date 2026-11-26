@@ -2,6 +2,12 @@ package app.kite.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -37,25 +43,33 @@ fun RouteProfileOverlay(model: AppModel, route: Route) {
     val cumulative = remember(route.id) { Geo.cumulative(route.polyline) }
     val distance = cumulative.lastOrNull() ?: 0.0
     var surfaceTab by remember(route.id) { mutableStateOf(false) }
-    BoxWithConstraints(Modifier.fillMaxSize().systemBarsPadding()) {
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(maxHeight * 0.49f)
-            .clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)).background(interfaceSheet)
-            .padding(horizontal = 16.dp, vertical = 10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Route profile", Modifier.weight(1f), color = primaryText, fontSize = KType.headline, fontWeight = FontWeight.Bold)
-                TextButton(model::closeProfile) { Text("Done") }
+    var expanded by remember(route.id) { mutableStateOf(false) }
+    BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding()) {
+        val height by animateDpAsState(maxHeight * if (expanded) 0.87f else 0.55f, label = "Profile height")
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(height)
+            .clip(RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp)).background(interfaceSheet)
+            .navigationBarsPadding().padding(horizontal = 16.dp, vertical = 11.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.size(42.dp).clip(RoundedCornerShape(13.dp)).background(interfaceHighlight), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Filled.Terrain, null, tint = interfaceOnHighlight)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(localizeLabel("Route profile"), color = primaryText, fontSize = KType.headline, fontWeight = FontWeight.Bold)
+                    if (distance > 0) Text(Fmt.distance(distance), color = secondaryText, fontSize = KType.caption)
+                }
+                CircleIconButton(if (expanded) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                    description = if (expanded) "Show more map" else "Expand profile", onClick = { expanded = !expanded })
+                CircleIconButton(Icons.Filled.Close, description = "Close profile", onClick = model::closeProfile)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(!surfaceTab, { surfaceTab = false }, label = { Text("Elevation") })
-                FilterChip(surfaceTab, { surfaceTab = true }, label = { Text("Surface") })
-            }
+            Segmented(listOf(false, true), surfaceTab, { if (it) "Surface" else "Elevation" }) { surfaceTab = it }
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (surfaceTab) {
                     val sections = entry?.surfaces
                     when {
                         sections == null -> CircularProgressIndicator(Modifier.size(24.dp))
-                        sections.isEmpty() -> Text("Surface data unavailable.", color = secondaryText)
+                        sections.isEmpty() -> Text(localizeLabel("Surface data unavailable."), color = secondaryText)
                         else -> SurfaceChart(sections, route, model, distance)
                     }
                     if (entry != null && !entry.fullSurface && distance > PREFETCH_SURFACE_METERS) {
@@ -70,7 +84,7 @@ fun RouteProfileOverlay(model: AppModel, route: Route) {
                         elevation != null && distance > 0 -> ElevationChart(elevation, distance) { fraction ->
                             model.scrubProfile(Geo.point(route.polyline, distance * fraction, cumulative))
                         }
-                        entry?.elevationDone == true -> Text("Elevation data unavailable.", color = secondaryText)
+                        entry?.elevationDone == true -> Text(localizeLabel("Elevation data unavailable."), color = secondaryText)
                         else -> CircularProgressIndicator(Modifier.size(24.dp))
                     }
                 }

@@ -110,7 +110,7 @@ fun LiveCamPhoto(state: LiveCamPhotoState, modifier: Modifier = Modifier, corner
             state.failed -> Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Filled.VideocamOff, null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(26.dp))
                 Text("No photo right now", color = Color.White.copy(alpha = 0.85f), fontSize = KType.footnote, fontWeight = FontWeight.SemiBold)
-                if (retry != null) Text("Try again", color = Color(0xFF5EEAD4), fontSize = KType.footnote, fontWeight = FontWeight.Bold,
+                if (retry != null) Text(localizeLabel("Try again"), color = Color(0xFF5EEAD4), fontSize = KType.footnote, fontWeight = FontWeight.Bold,
                     modifier = Modifier.clip(CircleShape).tap(retry).padding(horizontal = 8.dp, vertical = 4.dp))
             }
             else -> CircularProgressIndicator(color = Color.White, strokeWidth = 2.5.dp, modifier = Modifier.size(28.dp))
@@ -147,8 +147,8 @@ fun LiveCamCard(model: AppModel, cam: LiveCam) {
                     Text(cam.name, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = primaryText, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     if (cam.detail.isNotEmpty()) Text(cam.detail, fontSize = KType.footnote, color = secondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Icon(Icons.Filled.Close, "Close", tint = secondaryText,
-                    modifier = Modifier.size(30.dp).clip(CircleShape).background(Vela.chip(dark)).tap { model.liveCam = null }.padding(6.dp))
+                Icon(Icons.Filled.Close, localizeLabel("Close"), tint = secondaryText,
+                    modifier = Modifier.size(30.dp).clip(CircleShape).background(interfaceChip).tap { model.liveCam = null }.padding(6.dp))
             }
             Box {
                 LiveCamPhoto(state, Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).tap { if (state.bitmap != null) fullScreen = true },
@@ -160,7 +160,7 @@ fun LiveCamCard(model: AppModel, cam: LiveCam) {
                 Text("Photo: ${cam.source.credit}", fontSize = KType.caption2, color = secondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f))
                 cam.moreUrl?.let { more ->
-                    Row(Modifier.height(34.dp).clip(CircleShape).background(Vela.chip(dark)).tap { context.open(more) }.padding(horizontal = 12.dp),
+                    Row(Modifier.height(34.dp).clip(CircleShape).background(interfaceChip).tap { context.open(more) }.padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                         Icon(Icons.Filled.PlayArrow, null, tint = primaryText, modifier = Modifier.size(16.dp))
                         Text(if (cam.source == LiveCam.Source.WINDY) "Timelapse" else "Video", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = primaryText)
@@ -169,7 +169,7 @@ fun LiveCamCard(model: AppModel, cam: LiveCam) {
                 val spin = rememberInfiniteTransition(label = "spin").animateFloat(0f, 360f,
                     infiniteRepeatable(tween(800, easing = LinearEasing), RepeatMode.Restart), label = "spin")
                 Icon(Icons.Filled.Refresh, "Refresh photo", tint = primaryText,
-                    modifier = Modifier.size(34.dp).clip(CircleShape).background(Vela.chip(dark))
+                    modifier = Modifier.size(34.dp).clip(CircleShape).background(interfaceChip)
                         .tap { scope.launch { state.load(cam, force = true) } }.padding(8.dp).rotate(if (state.refreshing) spin.value else 0f))
             }
             if (index != null && list.size > 1) {
@@ -187,7 +187,7 @@ fun LiveCamCard(model: AppModel, cam: LiveCam) {
 
 @Composable
 private fun StepButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, enabled: Boolean, action: () -> Unit) {
-    Box(Modifier.size(width = 40.dp, height = 34.dp).clip(CircleShape).background(Vela.chip(LocalDark.current))
+    Box(Modifier.size(width = 40.dp, height = 34.dp).clip(CircleShape).background(interfaceChip)
         .then(if (enabled) Modifier.tap(action) else Modifier).graphicsLayer { alpha = if (enabled) 1f else 0.35f },
         contentAlignment = Alignment.Center) {
         Icon(icon, label, tint = primaryText, modifier = Modifier.size(22.dp))
@@ -223,7 +223,7 @@ fun LiveCamFullScreen(cam: LiveCam, state: LiveCamPhotoState, close: () -> Unit)
                         Text(cam.source.credit, color = Color.White.copy(alpha = 0.7f), fontSize = KType.caption2)
                     }
                 }
-                Icon(Icons.Filled.Close, "Close", tint = Color.White,
+                Icon(Icons.Filled.Close, localizeLabel("Close"), tint = Color.White,
                     modifier = Modifier.size(40.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.18f)).tap(close).padding(9.dp))
             }
         }
@@ -257,7 +257,7 @@ fun RouteLiveCams(model: AppModel, route: Route) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Icon(Icons.Filled.Videocam, null, tint = roadBlue, modifier = Modifier.size(20.dp))
-            Text("Cameras on your route", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = primaryText)
+            Text(localizeLabel("Cameras on your route"), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = primaryText)
             Text("${list.size}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = secondaryText)
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {

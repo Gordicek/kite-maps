@@ -55,6 +55,10 @@ object MapLinks {
     sealed class Target {
         data class Spot(val at: LatLng, val name: String?) : Target()
         data class Search(val text: String, val near: LatLng?) : Target()
+        data class RoutePlan(
+            val origin: String?, val destination: String, val waypoints: List<String>,
+            val mode: TravelMode, val transit: Boolean,
+        ) : Target()
     }
 
     private val linkRe = Regex(
@@ -114,6 +118,36 @@ object MapLinks {
         val path = Link.pct(url.path)
         val full = Link.pct(url.raw)
         val segments = path.split('/').filter { it.isNotEmpty() }
+        val googleHost = Regex("""(?:www\.|maps\.)?google\.(?:com|[a-z]{2}|(?:co|com)\.[a-z]{2})""",
+            RegexOption.IGNORE_CASE)
+        val routePath = url.rawPath.split('/').filter(String::isNotBlank).dropWhile { it == "maps" }
+        if (url.host?.matches(googleHost) == true && routePath.firstOrNull() == "dir") {
+            val form = url.query.orEmpty().split('&').filter { '=' in it }.associate {
+                Link.pct(it.substringBefore('=')) to Link.pct(it.substringAfter('=').replace("+", " ")).trim()
+            }
+            val pathPoints = routePath.drop(1).takeWhile { !it.startsWith('@') && !it.startsWith("data=") }
+                .map { Link.pct(it.replace("+", " ")).trim() }.filter(String::isNotEmpty)
+            val destination = form["destination"].takeUnless { it.isNullOrBlank() }
+                ?: pathPoints.lastOrNull()?.takeIf { pathPoints.size >= 2 }
+            val waypoints = form["waypoints"]?.split('|')?.map(String::trim)?.filter(String::isNotEmpty)
+                ?: pathPoints.drop(1).dropLast(1)
+            if (destination != null) {
+                val travel = form["travelmode"] ?: when {
+                    "!3e2" in full -> "walking"
+                    "!3e1" in full -> "bicycling"
+                    "!3e3" in full -> "transit"
+                    else -> "driving"
+                }
+                val mode = when (travel) {
+                    "walking" -> TravelMode.WALK
+                    "bicycling" -> TravelMode.BIKE
+                    else -> TravelMode.DRIVE
+                }
+                val origin = form["origin"].takeUnless { it.isNullOrBlank() }
+                    ?: pathPoints.firstOrNull()?.takeIf { pathPoints.size >= 2 }
+                return Target.RoutePlan(origin, destination, waypoints, mode, travel == "transit")
+            }
+        }
         var name: String? = null
         val pi = segments.indexOf("place")
         if (pi >= 0 && pi + 1 < segments.size && !segments[pi + 1].startsWith("@")) name = segments[pi + 1].replace("+", " ")

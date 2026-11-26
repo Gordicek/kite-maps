@@ -30,8 +30,9 @@ object NavZoom {
                 next != ManeuverType.DEPART && next != ManeuverType.UNKNOWN
             if (turning && d < NEAR_START) {
                 // 1 at 300 m out, 0 from 60 m in: slide from the normal view to the close one.
-                val f = max(0.0, min(1.0, (d - NEAR_END) / (NEAR_START - NEAR_END)))
-                val close = max(225.0, v * 12)
+                val t = ((d - NEAR_END) / (NEAR_START - NEAR_END)).coerceIn(0.0, 1.0)
+                val f = t * t * (3 - 2 * t)
+                val close = max(if (next == ManeuverType.ROUNDABOUT) 255.0 else 210.0, v * 10)
                 if (close < across) across = close + (across - close) * f
                 pitch = 35 + 15 * f
             } else {
@@ -40,8 +41,6 @@ object NavZoom {
                 across = min(1800.0, across * (1 + 0.25 * f))
                 pitch = 50 + 5 * f
             }
-            // Close to a roundabout, the whole of it and its exits fill the view.
-            if (next == ManeuverType.ROUNDABOUT && d < 350) across = min(across, max(255.0, v * 12))
         }
         return View(across, pitch)
     }
@@ -52,7 +51,7 @@ object NavZoom {
 
 /** How close the driving map sits, picked in Settings. Normal is the zoom Kite always had. */
 enum class MapZoom(val title: String, val scale: Double) {
-    CLOSER("Closer", 0.7), NORMAL("Normal", 1.0), WIDER("Wider", 1.4);
+    CLOSER("Closer", 0.7), NORMAL("Normal", 0.87), WIDER("Wider", 1.4);
 
     companion object {
         fun of(name: String?): MapZoom = entries.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: NORMAL

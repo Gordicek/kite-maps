@@ -39,17 +39,24 @@ object Roundabouts {
                 if (i > 0 && r.maneuvers[i - 1].type == ManeuverType.ROUNDABOUT) {
                     r.maneuvers[i - 1].roundabout?.let { prev ->
                         m.roundabout = prev
-                        m.exit = m.exit ?: r.maneuvers[i - 1].exit
+                        m.exit = r.maneuvers[i - 1].exit ?: m.exit
                     }
                 }
                 continue
             }
             val leave = wayOff(r.maneuvers, i) ?: leaving(ways, m.location, route.polyline, cum, m.alongMeters)
             val out = exitAngle(route.polyline, cum, m.alongMeters, leave)
-            val s = shape(ways, m.location, route.polyline, cum, m.alongMeters, clockwise, m.exit)
+            val s = shape(ways, m.location, route.polyline, cum, m.alongMeters, clockwise)
             val sketch = m.roundabout
-            if (s != null && (m.exit == null || s.taken + 1 == m.exit)) {
-                m.roundabout = out?.let { aim(s, it) } ?: s
+            if (s != null) {
+                m.roundabout = s
+                val matchedExit = s.taken + 1
+                if (m.exit == null || route.mode == TravelMode.DRIVE && route.source == "google") {
+                    if (m.exit != matchedExit) {
+                        m.exit = matchedExit
+                        m.instruction = OSRM.instruction("roundabout", null, m.road, matchedExit, route.mode)
+                    }
+                }
                 changed = true
             } else if (out != null && sketch != null && sketch.taken in sketch.exits.indices && angleGap(sketch.exits[sketch.taken], out) > 1) {
                 m.roundabout = if (angleGap(sketch.exits[sketch.taken], out) < 50 && (m.exit == null || sketch.taken + 1 == m.exit)) aim(sketch, out)
@@ -95,8 +102,9 @@ object Roundabouts {
                 if (i > 0 && r.maneuvers[i - 1].type == ManeuverType.ROUNDABOUT) m.roundabout = r.maneuvers[i - 1].roundabout
                 continue
             }
-            val out = exitAngle(route.polyline, cum, m.alongMeters, wayOff(r.maneuvers, i)) ?: continue
             val s = m.roundabout
+            if (s?.complete == true && s.taken in s.exits.indices) continue
+            val out = exitAngle(route.polyline, cum, m.alongMeters, wayOff(r.maneuvers, i)) ?: continue
             // A sketch that counts a different exit from the words is drawn again with the spoken count.
             m.roundabout = if (s != null && s.taken in s.exits.indices && angleGap(s.exits[s.taken], out) < 50 && (m.exit == null || s.taken + 1 == m.exit)) aim(s, out)
             else spread(out, m.exit ?: 1, Geo.drivesOnLeft(m.location))
@@ -303,6 +311,7 @@ object Roundabouts {
         data class A(val angle: Double, val canExit: Boolean, val name: String?)
         val arms = mutableListOf<A>()
         for (w in ways) {
+            if (!drivingArm(w.tags)) continue
             val oneway = onewayDirection(w.tags)
             for ((i, n) in w.nodes.withIndex()) {
                 if (n != id) continue
@@ -367,8 +376,14 @@ object Roundabouts {
     }
 
     /** The roundabout entered at [entry]: the ring ways near it and every road touching them. */
-    fun shape(ways: List<Way>, entry: LatLng, line: List<LatLng>, cum: DoubleArray, along: Double, clockwise: Boolean, exitNumber: Int?): RoundaboutShape? {
+    fun shape(ways: List<Way>, entry: LatLng, line: List<LatLng>, cum: DoubleArray, along: Double, clockwise: Boolean): RoundaboutShape? {
         val (ring, nodes) = ringAt(ways, entry) ?: return null
+        val nodeDegree = mutableMapOf<Long, Int>()
+        for (way in ring) for ((a, b) in way.nodes.zipWithNext()) {
+            nodeDegree[a] = (nodeDegree[a] ?: 0) + 1
+            nodeDegree[b] = (nodeDegree[b] ?: 0) + 1
+        }
+        if (nodeDegree.values.any { it != 2 }) return null
         var sx = 0.0
         var sy = 0.0
         var total = 0.0
@@ -387,9 +402,7 @@ object Roundabouts {
         if (radius <= 3 || radius >= 250) return null
         var arms = mutableListOf<Arm>()
         for (w in ways) {
-            if (w.isRing) continue
-            val access = w.tags["access"] ?: w.tags["motor_vehicle"]
-            if (access != null && access in setOf("no", "private")) continue
+            if (w.isRing || !drivingArm(w.tags)) continue
             val oneway = onewayDirection(w.tags)
             for ((i, n) in w.nodes.withIndex()) {
                 if (n !in nodes) continue
@@ -405,7 +418,10 @@ object Roundabouts {
         }
         arms = merge(arms).toMutableList()
         if (arms.isEmpty()) return null
-        val entryAngle = Geo.bearing(center, entry)
+        val before = Geo.point(line, along - 24, cum)
+        val approachBearing = Geo.bearing(center, if (before.distanceTo(center) > radius + 8) before else entry)
+        val entryAngle = arms.filter { it.canEnter }.minByOrNull { angleGap(it.angle, approachBearing) }
+            ?.angle?.takeIf { angleGap(it, approachBearing) <= 35 } ?: return null
         fun rel(a: Double) = norm(a - entryAngle + 180)
         fun travel(r: Double): Double {
             val t = norm(if (clockwise) r - 180 else 180 - r)
@@ -416,9 +432,19 @@ object Roundabouts {
         val inOnly = arms.filter { !it.canExit && angleGap(rel(it.angle), 180.0) > 25 }.map { rel(it.angle) }
         val outPoint = leavingPoint(line, cum, along, center, radius) ?: return null
         val outAngle = rel(Geo.bearing(center, outPoint))
-        val taken = exits.indices.minByOrNull { angleGap(exits[it], outAngle) } ?: return null
-        if (angleGap(exits[taken], outAngle) >= 50) return null
+        val nearest = exits.indices.sortedBy { angleGap(exits[it], outAngle) }
+        val taken = nearest.first()
+        val gap = angleGap(exits[taken], outAngle)
+        if (gap > 27 || nearest.getOrNull(1)?.let { angleGap(exits[it], outAngle) - gap < 12 } == true) return null
         return RoundaboutShape(exits, taken, inOnly, clockwise, true)
+    }
+
+    internal fun drivingArm(tags: Map<String, String>): Boolean {
+        val access = tags["motorcar"] ?: tags["motor_vehicle"] ?: tags["vehicle"] ?: tags["access"]
+        if (access in setOf("no", "private")) return false
+        if (tags["highway"] in setOf("footway", "cycleway", "path", "pedestrian", "steps", "bridleway", "corridor",
+                "construction", "proposed", "platform", "bus_guideway", "escape", "raceway")) return false
+        return tags["service"] !in setOf("driveway", "parking_aisle", "emergency_access")
     }
 
     /** 1 when traffic may only go along the way's node order, -1 only against it, 0 both ways. */
@@ -449,11 +475,14 @@ object Roundabouts {
     }
 
     fun leavingPoint(line: List<LatLng>, cum: DoubleArray, along: Double, center: LatLng, radius: Double): LatLng? {
-        var m = along + 5
+        var m = max(0.0, along - 12)
         val end = min(cum.last(), along + radius * 8 + 200)
+        var entered = false
         while (m <= end) {
             val p = Geo.point(line, m, cum)
-            if (p.distanceTo(center) > radius + max(12.0, radius * 0.4)) return p
+            val distance = p.distanceTo(center)
+            if (distance <= radius + 5) entered = true
+            else if (entered && distance > radius + max(12.0, radius * 0.4)) return p
             m += 4
         }
         return null

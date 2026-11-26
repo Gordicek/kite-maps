@@ -125,10 +125,22 @@ object Transitous {
     suspend fun plan(from: LatLng, to: LatLng, timeMillis: Long? = null, arriveBy: Boolean = false): List<TransitTrip> {
         val oldUrl = planURL(from, to, timeMillis = timeMillis, arriveBy = arriveBy)
         val modern = Http.getOrNull(oldUrl.replace("/api/v1/", "/api/v6/") + "&withFares=false", headers, client)
-        if (modern?.ok == true) return parse(modern.body)
+        if (modern?.ok == true) return withContext(Dispatchers.Default) { parse(modern.body) }
         val r = Http.get(oldUrl, headers, client)
         if (!r.ok) throw KiteError.http(r.code)
-        return parse(r.body)
+        return withContext(Dispatchers.Default) { parse(r.body) }
+    }
+
+    suspend fun selectedDeparture(departure: Departure): TransitTrip? {
+        val id = departure.tripId ?: return null
+        val response = Http.getOrNull("$base/api/v6/trip?tripId=${urlEnc(id)}&withScheduledSkippedStops=true",
+            headers, refreshClient)?.takeIf { it.ok } ?: return null
+        return withContext(Dispatchers.Default) {
+            val row = Json.obj(response.body)?.get("legs").asMaps()?.firstOrNull { it["tripId"] == id }
+                ?: return@withContext null
+            val ride = leg(row).takeIf { !it.isWalk && it.path.size >= 2 } ?: return@withContext null
+            TransitTrip(ride.depart, ride.arrive, ride.durationSeconds, 0, listOf(ride), id = "departure:$id")
+        }
     }
 
     /** Refresh the itinerary in one request. Keep the chosen vehicle IDs and transfer order. */
@@ -218,16 +230,19 @@ object Transitous {
         return TransitLive(board, exit, cancelled, current.notices, position, calls = current.calls)
     }
 
-    private fun estimateVehicle(leg: TransitLeg, now: Long): LatLng? {
+    fun timetablePosition(leg: TransitLeg, now: Long): LatLng? =
+        if (leg.cancelled) null else estimateVehicle(leg, now, requireUpdates = false)
+
+    private fun estimateVehicle(leg: TransitLeg, now: Long, requireUpdates: Boolean = true): LatLng? {
         if (leg.path.size < 2) return null
         val stop = leg.calls.firstOrNull { call ->
             !call.cancelled && call.arrival != null && call.departure != null && now in call.arrival..call.departure &&
-                (call.arrivalDelay != null || call.departureDelay != null)
+                (!requireUpdates || call.arrivalDelay != null || call.departureDelay != null)
         }
         if (stop != null) return stop.at
         val (a, b) = leg.calls.filterNot { it.cancelled }.zipWithNext().firstOrNull { (a, b) ->
             a.departure != null && b.arrival != null && b.arrival > a.departure && now in a.departure..b.arrival &&
-                (a.departureDelay != null || b.arrivalDelay != null)
+                (!requireUpdates || a.departureDelay != null || b.arrivalDelay != null)
         } ?: return null
         val fromTime = a.departure ?: return null
         val toTime = b.arrival ?: return null
@@ -347,6 +362,24 @@ object Transitous {
         return parseLines(r.body)
     }
 
+    /** Keep consecutive in-view track segments, including a point across each edge so pans don't expose a cut. */
+    fun trackPieces(points: List<LatLng>, south: Double, west: Double, north: Double, east: Double): List<List<LatLng>> = buildList {
+        var start = -1
+        for (index in 1 until points.size) {
+            val a = points[index - 1]
+            val b = points[index]
+            val nearView = maxOf(a.lat, b.lat) >= south && minOf(a.lat, b.lat) <= north &&
+                maxOf(a.lng, b.lng) >= west && minOf(a.lng, b.lng) <= east
+            if (nearView) {
+                if (start < 0) start = index - 1
+            } else if (start >= 0) {
+                add(points.subList(start, index))
+                start = -1
+            }
+        }
+        if (start >= 0) add(points.subList(start, points.size))
+    }
+
     fun parseLines(data: ByteArray): List<Line> {
         val root = Json.obj(data) ?: return emptyList()
         val routes = root["routes"].asMaps() ?: return emptyList()
@@ -441,16 +474,54 @@ object Transitous {
 
     internal fun withoutRailSpikes(path: List<LatLng>, calls: List<TransitCall>): List<LatLng> {
         if (path.size < 3 || calls.size < 2) return path
-        return path.filterIndexed { i, point ->
+        fun served(point: LatLng) = calls.any { it.at.distanceTo(point) <= 45 }
+        val singleSpikes = path.filterIndexed { i, point ->
             if (i == 0 || i == path.lastIndex) return@filterIndexed true
             val before = path[i - 1]
             val after = path[i + 1]
             val shorterSide = minOf(before.distanceTo(point), point.distanceTo(after))
-            // Some feeds insert a lone vertex hundreds of metres off track between consecutive
-            // stops. Protect mapped stops and leave ordinary curves or reversals in place.
-            shorterSide < 120 || before.distanceTo(after) >= 0.5 * shorterSide ||
-                calls.any { it.at.distanceTo(point) <= 45 }
+            shorterSide < 120 || before.distanceTo(after) >= 0.5 * shorterSide || served(point)
         }
+        // Some bad shapes jump away and back through several adjacent points. Keep mapped stops
+        // and regular turns. Replace only short vertex runs bounded by two long jumps.
+        if (singleSpikes.size < 4) return singleSpikes
+        val distances = Geo.cumulative(singleSpikes)
+        return buildList {
+            var start = 0
+            while (start < singleSpikes.size) {
+                val point = singleSpikes[start]
+                add(point)
+                var end = start + 1
+                val last = minOf(start + 6, singleSpikes.lastIndex)
+                if (last >= start + 2 && distances[start + 1] - distances[start] >= 100) {
+                    for (candidate in last downTo start + 2) {
+                        if (distances[candidate] - distances[candidate - 1] < 100) continue
+                        val target = singleSpikes[candidate]
+                        val chord = point.distanceTo(target)
+                        val total = distances[candidate] - distances[start]
+                        if (total - chord < 210 || total < chord * 1.95 || chord > 680) continue
+                        val skipped = singleSpikes.subList(start + 1, candidate)
+                        if (skipped.any(::served)) continue
+                        val direct = listOf(point, target)
+                        if (skipped.none { Geo.project(it, direct).offset >= 105 }) continue
+                        end = candidate
+                        break
+                    }
+                }
+                start = end
+            }
+        }
+    }
+
+    /** Compare a direct walk with an itinerary, including the wait before a leave-now trip. */
+    fun walkIsFaster(walkSeconds: Double, trips: List<TransitTrip>, at: Long, arriveBy: Boolean): Boolean {
+        if (!walkSeconds.isFinite() || walkSeconds <= 0) return false
+        val transitSeconds = trips.filter { trip -> trip.rides.none { it.cancelled } }.minOfOrNull { trip ->
+            val total = if (arriveBy) trip.depart?.let { (at - it) / 1000.0 }
+                else trip.arrive?.let { (it - at) / 1000.0 }
+            maxOf(trip.durationSeconds, total ?: trip.durationSeconds)
+        } ?: return true
+        return walkSeconds + 30 < transitSeconds
     }
 
     private fun delayMinutes(actual: Long?, planned: Any?, live: Boolean, reason: Any?): Int? {

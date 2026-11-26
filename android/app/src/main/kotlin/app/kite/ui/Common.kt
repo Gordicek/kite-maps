@@ -5,6 +5,7 @@ package app.kite.ui
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -17,9 +18,12 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
+import kotlin.math.roundToInt
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
@@ -43,6 +47,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import app.kite.*
 import app.kite.core.*
 import kotlin.math.abs
@@ -65,6 +72,12 @@ fun BottomSheet(
     topClearance: Dp = 0.dp,
     opaque: Boolean = false,
     allowPeek: Boolean = true,
+    halfFraction: Float = 0.46f,
+    fullFraction: Float = 0.94f,
+    edgeToEdge: Boolean = false,
+    onDismiss: (() -> Unit)? = null,
+    dismissOnDragFromExpanded: Boolean = true,
+    detentAnimationMillis: Int? = null,
     header: @Composable ColumnScope.() -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -75,51 +88,72 @@ fun BottomSheet(
     fun height(d: SheetDetent): Float = with(density) {
         when (d) {
             SheetDetent.PEEK -> peekHeight.toPx()
-            SheetDetent.HALF -> containerHeight.toPx() * 0.46f
-            SheetDetent.FULL -> if (topClearance > 0.dp) containerHeight.toPx() - topClearance.toPx() else containerHeight.toPx() * 0.94f
+            SheetDetent.HALF -> containerHeight.toPx() * halfFraction
+            SheetDetent.FULL -> if (topClearance > 0.dp) containerHeight.toPx() - topClearance.toPx() else containerHeight.toPx() * fullFraction
         }
     }
     var drag by remember { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
+    var dismissing by remember { mutableStateOf(false) }
     val target = height(effectiveDetent) - drag
-    val animated by animateFloatAsState(target, if (dragging) spring(stiffness = Spring.StiffnessHigh * 4) else
-        spring(dampingRatio = 0.85f, stiffness = 380f), label = "sheet")
-    val low = minOf(height(if (allowPeek) SheetDetent.PEEK else SheetDetent.HALF), height(SheetDetent.FULL)).coerceAtLeast(0f)
-    val top = maxOf(low, height(SheetDetent.FULL))
-    val current = animated.coerceIn(low, top)
+    val animated = animateFloatAsState(target, when {
+        dragging -> snap()
+        detentAnimationMillis != null -> tween(detentAnimationMillis)
+        else -> spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 410f)
+    }, label = "sheet")
+    val lowestVisible = minOf(height(if (allowPeek) SheetDetent.PEEK else SheetDetent.HALF), height(SheetDetent.FULL)).coerceAtLeast(0f)
+    val canDismiss = onDismiss != null
+    val low = if (canDismiss) 0f else lowestVisible
+    val top = maxOf(lowestVisible, height(SheetDetent.FULL))
 
+    val applyDetent by rememberUpdatedState(onDetent)
+    val dismiss by rememberUpdatedState(onDismiss)
     fun settle(velocity: Float) {
+        if (dismissing) return
         val end = height(effectiveDetent) - drag - velocity * 0.18f
+        val dismissAction = dismiss
+        val canDismissFromHere = dismissOnDragFromExpanded || effectiveDetent == SheetDetent.PEEK
+        if (dismissAction != null && canDismissFromHere && shouldDismissSheet(end, lowestVisible)) {
+            dismissing = true
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            // Leave the outgoing card where the gesture released it. The parent animates it off screen.
+            dismissAction()
+            return
+        }
         val best = SheetDetent.entries.filter { allowPeek || it != SheetDetent.PEEK }.minBy { abs(height(it) - end) }
-        if (best != detent) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        if (best != effectiveDetent) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         dragging = false
         drag = 0f
-        onDetent(best)
+        applyDetent(best)
     }
 
-    val connection = remember(effectiveDetent, allowPeek, containerHeight, topClearance, peekHeight) {
+    val connection = remember(effectiveDetent, allowPeek, canDismiss, dismissOnDragFromExpanded, containerHeight, topClearance, peekHeight, halfFraction, fullFraction, density) {
         object : NestedScrollConnection {
+            private fun dragWithinSheet(delta: Float): Offset {
+                val anchor = height(effectiveDetent)
+                val limited = (drag + delta).coerceIn(anchor - top, anchor - low)
+                val taken = limited - drag
+                if (taken != 0f) {
+                    dragging = true
+                    drag = limited
+                }
+                return Offset(0f, taken)
+            }
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                // Below full height a drag on the list moves the sheet, not the list.
-                if (effectiveDetent != SheetDetent.FULL || drag != 0f) {
-                    dragging = true
-                    drag += available.y
-                    return Offset(0f, available.y)
-                }
-                return Offset.Zero
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                // Content scrolls once it reaches full height. A downward pull first scrolls the
+                // content back to its top, then the sheet consumes the remainder.
+                return if (available.y < 0 && (effectiveDetent != SheetDetent.FULL || drag != 0f))
+                    dragWithinSheet(available.y) else Offset.Zero
             }
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                // At full height, a pull down past the top of the list brings the sheet down.
-                if (available.y > 0 && source == NestedScrollSource.UserInput) {
-                    dragging = true
-                    drag += available.y
-                    return Offset(0f, available.y)
-                }
-                return Offset.Zero
-            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+                if (source == NestedScrollSource.UserInput && available.y > 0) dragWithinSheet(available.y) else Offset.Zero
+
             override suspend fun onPreFling(available: Velocity): Velocity {
-                if (dragging) { settle(available.y); return available }
-                return Velocity.Zero
+                if (!dragging) return Velocity.Zero
+                settle(available.y)
+                return Velocity(0f, available.y)
             }
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
                 if (dragging) settle(available.y)
@@ -128,15 +162,21 @@ fun BottomSheet(
         }
     }
 
-    val floating = detent != SheetDetent.FULL
-    val shape = RoundedCornerShape(if (floating) 34.dp else 28.dp)
+    val floating = !edgeToEdge && detent != SheetDetent.FULL
+    val shape = if (edgeToEdge) RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+        else RoundedCornerShape(if (floating) 34.dp else 28.dp)
     Column(
         Modifier
             .padding(horizontal = if (floating) 8.dp else 0.dp)
             .padding(bottom = if (floating) 8.dp else 0.dp)
             .fillMaxWidth()
-            .height(with(density) { current.toDp() })
-            .shadow(14.dp, shape)
+            .layout { child, constraints ->
+                val height = (if (dragging) target else animated.value).coerceIn(low, top)
+                    .roundToInt().coerceIn(constraints.minHeight, constraints.maxHeight)
+                val placeable = child.measure(constraints.copy(minHeight = height, maxHeight = height))
+                layout(placeable.width, height) { placeable.placeRelative(0, 0) }
+            }
+            .shadow(if (floating) 5.dp else 0.dp, shape)
             .clip(shape)
             .background(interfaceSheet.copy(alpha = if (opaque) 1f else 0.97f))
             .border(0.75.dp, Color.White.copy(alpha = if (dark) 0.12f else 0.5f), shape)
@@ -144,7 +184,11 @@ fun BottomSheet(
     ) {
         Column(
             Modifier.fillMaxWidth()
-                .draggable(rememberDraggableState { dragging = true; drag += it }, Orientation.Vertical,
+                .draggable(rememberDraggableState { delta ->
+                    dragging = true
+                    val anchor = height(effectiveDetent)
+                    drag = (drag + delta).coerceIn(anchor - top, anchor - low)
+                }, Orientation.Vertical,
                     onDragStarted = { dragging = true }, onDragStopped = { v -> settle(v) })
                 .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) {
                     if (detent == SheetDetent.PEEK) onDetent(SheetDetent.HALF)
@@ -158,19 +202,21 @@ fun BottomSheet(
     }
 }
 
+internal fun shouldDismissSheet(projectedHeight: Float, lowestVisible: Float): Boolean =
+    lowestVisible > 0f && projectedHeight < lowestVisible * 0.66f
+
 /**
  * The bar along the bottom: Map, Saved and Settings as three icons in one slim see-through pill,
  * with a dot under the page you're on. Each is still a big target (72 by 60).
  */
 @Composable
 fun KiteDock(model: AppModel, modifier: Modifier = Modifier) {
-    val dark = LocalDark.current
     Box(modifier.navigationBarsPadding().padding(bottom = 10.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
         Row(Modifier.height(60.dp).glass(CircleShape).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             @Composable
             fun item(tab: AppTab, icon: ImageVector, title: String) {
                 val on = model.tab == tab
-                val c = if (on) Vela.accentText(dark) else Vela.muted(dark)
+                val c = if (on) interfaceAccentText else secondaryText
                 Column(
                     Modifier.size(72.dp, 60.dp).clip(CircleShape).clickable {
                         if (tab != model.tab && model.tab == AppTab.SETTINGS) model.reloadRoutes()
@@ -182,9 +228,9 @@ fun KiteDock(model: AppModel, modifier: Modifier = Modifier) {
                     Box(Modifier.size(5.dp).clip(CircleShape).background(if (on) c else Color.Transparent))
                 }
             }
-            item(AppTab.MAP, Icons.Filled.Map, "Map")
-            item(AppTab.SAVED, Icons.Filled.Bookmark, "Saved")
-            item(AppTab.SETTINGS, Icons.Filled.Settings, "Settings")
+            item(AppTab.MAP, Icons.Filled.Map, localizeLabel("Map"))
+            item(AppTab.SAVED, Icons.Filled.Bookmark, localizeLabel("Saved"))
+            item(AppTab.SETTINGS, Icons.Filled.Settings, localizeLabel("Settings"))
         }
     }
 }
@@ -194,7 +240,7 @@ fun HeatLegend() {
     Row(Modifier.height(28.dp).glass(CircleShape).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Icon(Icons.Filled.LocalFireDepartment, null, tint = Color(0xFF8B5CF6), modifier = Modifier.size(13.dp))
-        Text("Police", fontSize = KType.caption2, fontWeight = FontWeight.SemiBold, color = primaryText)
+        Text(localizeLabel("Police"), fontSize = KType.caption2, fontWeight = FontWeight.SemiBold, color = primaryText)
         Box(Modifier.size(54.dp, 6.dp).clip(CircleShape).background(Brush.horizontalGradient(listOf(Color(0xFF3B82F6), Color(0xFF8B5CF6), Color(0xFFE879F9)))))
         Text("often", fontSize = KType.caption2, color = secondaryText)
     }
@@ -208,7 +254,7 @@ object PoliceRiskColors {
     }
 }
 
-fun PoliceRisk.Level.word() = name.lowercase().replaceFirstChar { it.uppercase() }
+fun PoliceRisk.Level.word() = localizeLabel(name.lowercase().replaceFirstChar { it.uppercase() })
 
 @Composable
 fun PoliceRiskChip(score: Int, label: String = "Police risk") {
@@ -217,15 +263,30 @@ fun PoliceRiskChip(score: Int, label: String = "Police risk") {
     Row(Modifier.height(36.dp).clip(CircleShape).background(PoliceRiskColors.color(level)).padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Icon(Icons.Filled.Shield, null, tint = fg, modifier = Modifier.size(17.dp))
-        Text("$label: ${level.word()}", color = fg, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Text("${localizeLabel(label)} · ${level.word()}", color = fg, fontSize = 15.sp, fontWeight = FontWeight.Bold)
     }
 }
 
-/**
- * Bottom left of the map, with Waze on. One label at most, so the map stays clear: the police risk
- * here, and only when it isn't low. The heat map's key shows for a few seconds after the heat map
- * is switched on, then goes; the count of live reports is on the Layers screen.
- */
+@Composable
+fun PoliceRiskButton(score: Int, opensLeft: Boolean) {
+    var expanded by remember { mutableStateOf(false) }
+    val space = with(LocalDensity.current) { 56.dp.roundToPx() }
+    val level = PoliceRisk.level(score)
+    Box {
+        MapFab(Icons.Filled.Shield, tint = PoliceRiskColors.color(level),
+            modifier = Modifier.semantics { contentDescription = "${localizeLabel("Police risk")} · ${level.word()}" }) {
+            expanded = !expanded
+        }
+        if (expanded) Popup(
+            alignment = if (opensLeft) Alignment.CenterEnd else Alignment.CenterStart,
+            offset = IntOffset(if (opensLeft) -space else space, 0),
+            onDismissRequest = { expanded = false },
+            properties = PopupProperties(focusable = true),
+        ) { PoliceRiskChip(score) }
+    }
+}
+
+/** Show the heat map key briefly after switching it on. */
 @Composable
 fun WazeMapChips(model: AppModel) {
     val s = AppSettings
@@ -238,11 +299,7 @@ fun WazeMapChips(model: AppModel) {
     LaunchedEffect(legend, model.showLayers) {
         if (legend && !model.showLayers) { kotlinx.coroutines.delay(6000); legend = false }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (legend && s.wazeHeatmap && s.wazePolice) HeatLegend()
-        val risk = model.areaRisk
-        if (s.policeRisk && risk != null && PoliceRisk.level(risk) != PoliceRisk.Level.LOW) PoliceRiskChip(risk)
-    }
+    if (legend && s.wazeHeatmap && s.wazePolice) HeatLegend()
 }
 
 /** "Carry on to Tesco Portswood?": the trip that was going when Kite closed, back in one tap. */
@@ -252,18 +309,18 @@ fun ResumeCard(trip: SavedTrip, onGo: () -> Unit, onClose: () -> Unit) {
     Column(Modifier.padding(horizontal = 12.dp).fillMaxWidth().glass(RoundedCornerShape(22.dp)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Carry on to", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Vela.muted(dark))
+                Text(localizeLabel("Carry on to"), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = secondaryText)
                 Text(trip.destination.name + "?", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = primaryText, maxLines = 2,
                     overflow = TextOverflow.Ellipsis, lineHeight = 26.sp)
-                if (trip.stops.isNotEmpty()) Text("via ${trip.stops.joinToString(", ") { it.name }}", fontSize = 15.sp, color = Vela.muted(dark),
+                if (trip.stops.isNotEmpty()) Text("via ${trip.stops.joinToString(", ") { it.name }}", fontSize = 15.sp, color = secondaryText,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            CircleIconButton(Icons.Filled.Close, Modifier.semantics { contentDescription = "Not now" }, onClick = onClose)
+            CircleIconButton(Icons.Filled.Close, Modifier.semantics { contentDescription = localizeLabel("Not now") }, onClick = onClose)
         }
-        Row(Modifier.fillMaxWidth().height(60.dp).clip(CircleShape).background(Vela.accent(dark)).clickable(onClick = onGo),
+        Row(Modifier.fillMaxWidth().height(60.dp).clip(CircleShape).background(interfaceAccent).clickable(onClick = onGo),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)) {
-            Icon(Icons.Filled.Navigation, null, tint = Vela.onAccent(dark), modifier = Modifier.size(26.dp))
-            Text("Carry on", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Vela.onAccent(dark))
+            Icon(Icons.Filled.Navigation, null, tint = interfaceOnAccent, modifier = Modifier.size(26.dp))
+            Text(localizeLabel("Carry on"), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = interfaceOnAccent)
         }
     }
 }
@@ -273,7 +330,7 @@ fun NoticeBanner(text: String, dismiss: () -> Unit) {
     Row(Modifier.padding(horizontal = 12.dp).fillMaxWidth().glass(RoundedCornerShape(14.dp)).padding(12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Icon(Icons.Outlined.Info, null, tint = secondaryText, modifier = Modifier.size(18.dp))
-        Text(text, fontSize = KType.footnote, color = primaryText, modifier = Modifier.weight(1f))
+        Text(localizeLabel(text), fontSize = KType.footnote, color = primaryText, modifier = Modifier.weight(1f))
         Icon(Icons.Filled.Close, "Dismiss", tint = primaryText, modifier = Modifier.size(18.dp).clickable(onClick = dismiss))
     }
 }
@@ -309,13 +366,13 @@ private fun StatusCard(icon: ImageVector, color: Color, title: String, detail: S
             Icon(icon, null, tint = Color.White, modifier = Modifier.size(22.dp))
         }
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = primaryText)
-            Text(detail, fontSize = 15.sp, color = Vela.muted(dark))
+            Text(localizeLabel(title), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = primaryText)
+            Text(localizeLabel(detail), fontSize = 15.sp, color = secondaryText)
         }
         if (button != null) {
-            Box(Modifier.height(44.dp).clip(CircleShape).background(Vela.accent(dark)).clickable(onClick = action).padding(horizontal = 16.dp),
+            Box(Modifier.height(44.dp).clip(CircleShape).background(interfaceAccent).clickable(onClick = action).padding(horizontal = 16.dp),
                 contentAlignment = Alignment.Center) {
-                Text(button, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Vela.onAccent(dark))
+                Text(button, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = interfaceOnAccent)
             }
         }
     }
@@ -338,16 +395,19 @@ fun CompassNeedle(heading: Double, onClick: () -> Unit) {
 fun MapLookButton(look: MapLook, size: Dp = 52.dp, onClick: () -> Unit) {
     val label = if (look == MapLook.TILTED) "3D" else "2D"
     Box(Modifier.size(size).glass(CircleShape, solid = true).clickable(onClick = onClick)
-        .semantics { contentDescription = "Map view: $label" }, contentAlignment = Alignment.Center) {
+        .semantics { contentDescription = kt("Map view: $label", "Pohled mapy: $label") }, contentAlignment = Alignment.Center) {
         Text(label, fontSize = (size.value * 0.34f).sp, fontWeight = FontWeight.Black, color = mapControlTint)
     }
 }
 
 @Composable
-fun CompassButton(heading: Double, northUp: Boolean, size: Dp = 44.dp, onClick: () -> Unit) {
-    val gray = secondaryText
-    Box(Modifier.size(size).glass(CircleShape, solid = true).clickable(onClick = onClick)
-        .semantics { contentDescription = if (northUp) "North up. Switch heading mode" else "Heading up. Face north" },
+fun CompassButton(heading: Double, enabled: Boolean, size: Dp = 44.dp, onClick: () -> Unit) {
+    val gray = if (enabled) interfaceAccentText else secondaryText
+    Box(Modifier.size(size).glass(CircleShape, solid = true)
+        .then(if (enabled) Modifier.border(1.5.dp, interfaceAccent, CircleShape) else Modifier)
+        .clickable(onClick = onClick)
+        .semantics { contentDescription = if (enabled) kt("Disable phone compass", "Vypnout kompas telefonu")
+            else kt("Rotate map with phone", "Otáčet mapu podle telefonu") },
         contentAlignment = Alignment.Center) {
         Canvas(Modifier.size(9.dp, 23.dp).rotate(-heading.toFloat())) {
             val w = this.size.width
@@ -376,18 +436,18 @@ fun PlaceTile(model: AppModel, icon: ImageVector, color: Color, title: String, p
                 Icon(icon, null, tint = Color.White, modifier = Modifier.size(22.dp))
             }
             Column(Modifier.weight(1f)) {
-                Text(title, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = primaryText, maxLines = 1)
+                Text(localizeLabel(title), fontSize = 19.sp, fontWeight = FontWeight.Bold, color = primaryText, maxLines = 1)
                 val d = place?.let { p -> model.userLatLng?.distanceTo(p.location) }
                 Text(d?.let { Fmt.distance(it) } ?: if (place == null) "Tap to set" else place.address ?: "Tap to go",
-                    fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Vela.muted(dark), maxLines = 1)
+                    fontSize = 15.sp, fontWeight = FontWeight.Medium, color = secondaryText, maxLines = 1)
             }
         }
         DropdownMenu(menu, { menu = false }) {
             DropdownMenuItem(text = { Text(if (rename == null) "Change ${title.lowercase()}" else "Rename shortcut") },
                 leadingIcon = { Icon(Icons.Filled.Edit, null) }, onClick = { menu = false; (rename ?: unset)() })
-            if (pin != null) DropdownMenuItem(text = { Text("Pin to Android launcher") },
+            if (pin != null) DropdownMenuItem(text = { Text(localizeLabel("Pin to Android launcher")) },
                 leadingIcon = { Icon(Icons.Filled.PushPin, null) }, onClick = { menu = false; pin() })
-            if (remove != null) DropdownMenuItem(text = { Text("Remove shortcut") },
+            if (remove != null) DropdownMenuItem(text = { Text(localizeLabel("Remove shortcut")) },
                 leadingIcon = { Icon(Icons.Filled.DeleteOutline, null) }, onClick = { menu = false; remove() })
         }
     }
@@ -427,7 +487,7 @@ internal fun CustomShortcuts(model: AppModel, done: () -> Unit, canAdd: Boolean 
     if (canAdd) OutlinedButton(onClick = { done(); model.picking = PickKind.SHORTCUT }) {
         Icon(Icons.Filled.Add, null, Modifier.size(19.dp))
         Spacer(Modifier.width(6.dp))
-        Text("Add shortcut")
+        Text(localizeLabel("Add shortcut"))
     }
 }
 
@@ -443,7 +503,7 @@ internal fun ShortcutNameDialog(model: AppModel, place: Place) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 place.address?.let { Text(it, color = secondaryText) }
-                OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(name, { name = it }, singleLine = true, label = { Text(localizeLabel("Name")) }, modifier = Modifier.fillMaxWidth())
             }
         },
         confirmButton = {
@@ -452,9 +512,9 @@ internal fun ShortcutNameDialog(model: AppModel, place: Place) {
                 settings.placeShortcuts = if (existing) settings.placeShortcuts.map { if (it.id == place.id) shortcut else it }
                     else settings.placeShortcuts + shortcut
                 close()
-            }, enabled = name.isNotBlank()) { Text("Save") }
+            }, enabled = name.isNotBlank()) { Text(localizeLabel("Save")) }
         },
-        dismissButton = { TextButton(::close) { Text("Cancel") } },
+        dismissButton = { TextButton(::close) { Text(localizeLabel("Cancel")) } },
     )
 }
 
@@ -466,7 +526,7 @@ fun IconRow(icon: ImageVector, text: String, sub: String? = null, trailing: Stri
         .padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Icon(icon, null, tint = secondaryText, modifier = Modifier.size(22.dp))
         Column(Modifier.weight(1f)) {
-            Text(text, color = primaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(localizeLabel(text), color = primaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (sub != null) Text(sub, fontSize = KType.caption, color = secondaryText, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (trailing != null) Text(trailing, fontSize = KType.caption, color = secondaryText)

@@ -75,7 +75,9 @@ class GoogleClient {
     ): List<Route> {
         val body = directionsBody(origin, destination, mode, avoidHighways, avoidTolls, via)
         val root = GoogleJSON.parse(body) ?: throw KiteError.unexpected()
-        return DirectionsParser.parse(root, mode)
+        return DirectionsParser.parse(root, mode).filter { route ->
+            route.polyline.first().distanceTo(origin) <= 500 && route.polyline.last().distanceTo(destination) <= 500
+        }
     }
 
     suspend fun directionsBody(
@@ -87,18 +89,22 @@ class GoogleClient {
         return get(directionsEndpoint + "&pb=" + enc(pb), "https://www.google.com/", true)
     }
 
-    suspend fun reviews(featureId: String): List<PlaceReview> {
-        val pb = GooglePlaceMedia.reviewParameter(featureId) ?: return emptyList()
+    suspend fun reviews(featureId: String): List<PlaceReview> = reviewsPage(featureId).reviews
+
+    suspend fun reviewsPage(featureId: String, token: String? = null): PlaceReviewPage {
+        val pb = GooglePlaceMedia.reviewParameter(featureId) ?: return PlaceReviewPage(emptyList())
         warm()
-        val request = GooglePlaceMedia.reviewFeedRequest(featureId)
-        val feed = try {
-            if (request == null) emptyList() else GooglePlaceMedia.reviewFeed(placeBatch("qv9Egd", request))
+        val request = GooglePlaceMedia.reviewFeedRequest(featureId, token.orEmpty())
+        val page = try {
+            if (request == null) PlaceReviewPage(emptyList()) else GooglePlaceMedia.reviewPage(placeBatch("qv9Egd", request))
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            emptyList()
+            if (token != null) throw KiteError.unexpected()
+            PlaceReviewPage(emptyList())
         }
-        if (feed.any { it.photos.isNotEmpty() } || feed.size >= 8) return feed
+        val feed = page.reviews
+        if (token != null || page.nextToken != null || feed.any { it.photos.isNotEmpty() } || feed.size >= 8) return page
         val legacy = try {
             val body = get("https://www.google.com/maps/preview/review/listentitiesreviews?authuser=0&hl=en&gl=us&pb=" +
                 urlEnc(pb), "https://www.google.com/maps/", true)
@@ -109,11 +115,11 @@ class GoogleClient {
             emptyList()
         }
         val both = (feed + legacy).distinctBy { Triple(it.author, it.stars, it.text) }
-        if (both.isNotEmpty()) return both
-        val releaseUrl = GoogleReviews.url(featureId) ?: return emptyList()
-        return GoogleReviews.parse(get(releaseUrl, "https://www.google.com/", true)).orEmpty().map {
+        if (both.isNotEmpty()) return page.copy(reviews = both)
+        val releaseUrl = GoogleReviews.url(featureId) ?: return PlaceReviewPage(emptyList())
+        return PlaceReviewPage(GoogleReviews.parse(get(releaseUrl, "https://www.google.com/", true)).orEmpty().map {
             PlaceReview(it.author, it.rating, it.whenText, it.text, emptyList())
-        }
+        })
     }
 
     suspend fun photos(featureId: String): List<String> {
@@ -227,6 +233,7 @@ object SearchParser {
         "reviewCount" to listOf(1, 4, 8),
         "priceText" to listOf(1, 4, 2),
         "fuelPrice" to listOf(1, 88, 0),
+        "popularTimes" to listOf(1, 84),
         "placeType" to listOf(1, 88, 1),
         "website" to listOf(1, 7, 0),
         "phone" to listOf(1, 178, 0, 0),
@@ -281,6 +288,7 @@ object SearchParser {
         p.address = (gstr(field(entry, "address")) ?: joined)?.let { stripNamePrefix(it, name) }
         p.rating = gdbl(field(entry, "rating"))
         p.reviewCount = gint(field(entry, "reviewCount"))
+        p.popularTimes = GooglePlaceMedia.popularTimes(field(entry, "popularTimes"))
         p.priceText = gstr(field(entry, "priceText"))
         p.fuelStation = gstr(field(entry, "placeType")) == "SearchResult.TYPE_GAS_STATION"
         if (FuelPrices.isStation(p)) {
